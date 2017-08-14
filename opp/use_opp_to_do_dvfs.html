@@ -1,0 +1,279 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="generator" content="AsciiDoc 8.6.9">
+<title>DVFS simplified with the OPP library</title>
+</head>
+<body>
+<h1>DVFS simplified with the OPP library</h1>
+<p>
+</p>
+<a name="preamble"></a>
+<p>Until Linux kernel release <a href="https://lwn.net/Articles/679931">4.5</a>, the
+operating performance points (OPP) framework was acting as a helper library that
+provided table of voltage-frequency pairs (with some additional information)
+for the Linux kernel devices. Linux kernel frameworks, like cpufreq and devreq,
+used these OPP tables to perform dynamic voltage and frequency scaling
+(<a href="https://en.wikipedia.org/wiki/Dynamic_voltage_scaling">DVFS</a>) for the
+devices. The OPP framework creates these tables dynamically via platform
+specific code and statically from Device Tree
+(<a href="https://www.kernel.org/doc/Documentation/devicetree/usage-model.txt">DT</a>)
+blobs.</p>
+<p>The OPP framework gained the infrastructure to do DVFS on behalf of a consumer
+driver, during the <a href="https://lwn.net/Articles/687511">4.6</a> development cycle.
+This helped reducing the complexity of the device drivers, which can focus on
+their platform specific details now.</p>
+<p>The rest of this article discusses what has changed and how can we use it for
+our device drivers.</p>
+<hr>
+<h2><a name="_operating_performance_point_opp"></a>Operating performance point (OPP)</h2>
+<p>The <a href="https://en.wikipedia.org/wiki/System_on_a_chip">SoCs</a> have become very
+complex and power-efficient now a days. There are multiple sub-modules within
+the SoC that work in conjunction all the time. But not all of them are required
+to function at their highest performance
+<a href="https://en.wikipedia.org/wiki/Frequency">frequency</a> and
+<a href="https://en.wikipedia.org/wiki/Voltage">voltage</a> levels, as that makes them
+less power-efficient. The devices (like
+<a href="https://en.wikipedia.org/wiki/Central_processing_unit">CPUs</a>,
+<a href="https://en.wikipedia.org/wiki/Graphics_processing_unit">GPUs</a>, IO devices,
+etc.) have the capability of working on a range of frequency and voltage pairs.
+They stay at lower frequencies when the system load is low and at higher
+frequencies otherwise.</p>
+<p>The set of discrete tuples consisting of, but not limited to, frequency and
+voltage pairs that the device supports are called <em>Operating Performance Points</em>
+(AKA OPPs).</p>
+<p>For example, a CPU core which supports: {1.0 GHz at minimum voltage 1.0 V}, {1.1
+GHz at minimum voltage 1.1 V}, and {1.2 GHz at minimum voltage 1.3 V} can be
+represent by these OPP tuples:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>     Hz         uV
+{1000000000, 1000000}
+{1100000000, 1100000}
+{1200000000, 1200000}</code></pre>
+</td></tr></table>
+<p>These tuples may contain more configurables as well, for example voltage levels
+for multiple power-supplies. The example at the end of this article shows how
+the OPP nodes are present in a Device Tree (DT) blob.</p>
+<p>Before Linux kernel release 4.6, the OPP framework was responsible to create an
+OPP table by parsing the OPP table from DT (or via the platform specific code)
+and provide a set of helpers to inquire about the target OPPs. For example,
+finding floor or ceil OPP corresponding to the target frequency.</p>
+<p>The consumer drivers of the OPP library, like &#8230;/cpufreq/cpufreq-dt.c, use the
+helpers to find an OPP corresponding to the target frequency and use it to
+configure the device&#8217;s clock and power-supplies (if required).</p>
+<hr>
+<h2><a name="_what_8217_s_new"></a>What&#8217;s new</h2>
+<p>For the most common configuration (with at most one power-supply for the
+device), all consumer drivers had pretty much identical DVFS code. And it made
+sense to let the OPP core configure the device to a particular OPP and simplify
+the consumer drivers by removing such code from them.</p>
+<p>During the 4.6 development cycle, the OPP core gained the functionality to
+perform DVFS on behalf of the consumer driver. The consumer driver needs to pass
+a target frequency, and the OPP finds and set the best possible OPP
+corresponding to that.</p>
+<p>In order to perform DVFS on behalf of the consumer driver, the OPP core needs
+some of the device&#8217;s resources. Some of them are acquired automatically by the
+OPP core, while the core needs help from the driver to get others. And it is
+important for driver writers to understand the expectations of the OPP core
+before they try to use the OPP core to do DVFS for their devices.</p>
+<p>In order to change the frequency of a device, the OPP core needs the pointer of
+the <em>struct clk</em> for the device. The OPP core gets this automatically by calling
+clk_get() using the device&#8217;s <em>struct device</em> pointer.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>clk = clk_get(dev, NULL);</code></pre>
+</td></tr></table>
+<p>Here, <em>clk</em> is the pointer to the clock structure, and <em>dev</em> is the pointer to
+the device structure. The consumer driver must make sure that the device has a
+valid clock registered for it with the clock framework, otherwise the OPP core
+will fail to do DVFS for the device.</p>
+<p>Voltage scaling isn&#8217;t always required while doing frequency scaling and so
+acquiring the power-supply resources is optional. But for the platforms that
+need to do voltage scaling, the OPP core needs some input from the consumer
+driver. The OPP core supports devices that don&#8217;t need power-supply, or need
+single or multiple power-supplies. The consumer driver needs to provide the
+names of all the power-supplies to the OPP core, that are required to be
+configured to perform DVFS for the device. The consumer driver needs to call the
+below routine only once for a device, and the OPP core will acquire the required
+power-supply resources for the device.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct opp_table *dev_pm_opp_set_regulators(struct device *dev, const char * const names[], unsigned int count);</code></pre>
+</td></tr></table>
+<p>Here, <em>dev</em> is the pointer to the device structure, <em>names</em> is the pointer to an
+array of power-supply names and <em>count</em> is the number of entries in that array.
+This routine returns a pointer to the <em>struct opp_table</em> for the device on
+success and an error number (casted as a pointer) if something went wrong. The
+order in which the names of the power-supplies are present in this array is
+significant. The OPP core assumes that the entries in the <em>opp-microvolt</em>
+property in the OPP table in DT will be present in the same order as in the
+array. Refer to the example at the end for more on <em>opp-microvolt</em> property. If
+the helper <em>dev_pm_opp_set_regulators()</em> isn&#8217;t called for a device, the OPP core
+assumes that the device doesn&#8217;t need to participate in voltage scaling and that
+frequency scaling can be done independently.</p>
+<p>The OPP core in turn calls the below routine for each string present in the
+<em>names</em> array. If the OPP core fails to get the regulator corresponding to any
+of the strings, it returns with an error from <em>dev_pm_opp_set_regulators()</em>.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>regulator_get_optional(dev, names[i]);</code></pre>
+</td></tr></table>
+<p>Here, <em>dev</em> is the pointer to the device structure and <em>names[i]</em> represents an
+entry in the <em>names</em> array.</p>
+<p>Once the consumer driver is done with the OPP table, it should free the
+resources acquired by the OPP core using the following routine:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>void dev_pm_opp_put_regulators(struct opp_table *opp_table);</code></pre>
+</td></tr></table>
+<p>Here, <em>opp_table</em> is the pointer to the OPP table, earlier returned by
+<em>dev_pm_opp_set_regulators()</em>.</p>
+<p><strong>Lets do DVFS now !!</strong></p>
+<p>Once the OPP core has all the resources it needs to do DVFS for a device, the
+consumer drivers can use the helpers described below to let the OPP core perform
+DVFS on its behalf. DVFS methods differ a bit depending on the number of
+power-supplies required to be configured for the device. In the most common cases
+the OPP core either needs to do only frequency scaling (no power-supply) or need
+to do voltage scaling for a single power-supply along with it. For such
+platforms, the consumer driver needs to call the below helper to let the OPP
+core do DVFS for the device.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>int dev_pm_opp_set_rate(struct device *dev, unsigned long target_freq);</code></pre>
+</td></tr></table>
+<p>Here, <em>dev</em> is the pointer to the device structure, and <em>target_freq</em> is the
+frequency we need to program the device for. This routines configures the device
+for the <em>ceil</em> OPP (OPP with lowest frequency greater than or equal to the
+target frequency) corresponding to the target frequency. This routine returns
+zero on success and a negative error number otherwise.</p>
+<p>If the device doesn&#8217;t need to do voltage scaling at all, then
+<em>dev_pm_opp_set_rate()</em> can be called without calling
+<em>dev_pm_opp_set_regulators()</em> earlier. Otherwise, <em>dev_pm_opp_set_regulators()</em>
+must be called successfully before calling <em>dev_pm_opp_set_rate()</em>. If the
+target OPP has higher frequency than the current OPP, then
+<em>dev_pm_opp_set_rate()</em> does voltage scaling before doing frequency scaling.
+Otherwise frequency scaling is done before voltage scaling.</p>
+<p>The handling is a bit different in the complex cases where voltage scaling of
+multiple power-supplies is required to be done. The order in which multiple
+power-supplies need to be programmed is pretty much platform specific and it is
+very difficult to come up with common code that can work for all of them. To
+simplify things, the OPP core provides the capability to provide platform
+specific <em>set_opp()</em> callbacks, which will be called by the OPP core from within
+<em>dev_pm_opp_set_rate()</em> at the time of DVFS.</p>
+<p>The platform specific callback can be registered using:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct opp_table *dev_pm_opp_register_set_opp_helper(struct device *dev, int (*set_opp)(struct dev_pm_set_opp_data *data));</code></pre>
+</td></tr></table>
+<p>Here, <em>dev</em> is the pointer to the device structure, and <em>set_opp</em> is the
+platform specific callback. The callback takes <em>struct dev_pm_set_opp_data</em> as
+argument, which contains all the configuration the callback needs to do DVFS,
+and returns 0 on success and negative error number otherwise. This helper
+returns a pointer to the <em>struct opp_table</em> for the device on success and an
+error number (casted as a pointer) if something went wrong.</p>
+<p>The platform specific callback should be unregistered using following routine
+after the consumer driver is done with the OPP table:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>void dev_pm_opp_register_put_opp_helper(struct opp_table *opp_table);</code></pre>
+</td></tr></table>
+<p>Here, <em>opp_table</em> is the pointer to the OPP table, earlier returned by
+<em>dev_pm_opp_register_set_opp_helper()</em>.</p>
+<p>Here is an example that connect the dots to explain how it all fits together. We
+have two CPU devices here (that share their clock/voltage rails) and we need to
+configure a single power-supply to perform DVFS for them.</p>
+<ul>
+<li>
+<p>
+Device Tree using <em>operating-points-v2</em> bindings
+</p>
+</li>
+</ul>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>        / {
+                cpus {
+                        #address-cells = <b>&lt;1&gt;</b>;
+                        #size-cells = <b>&lt;0&gt;</b>;
+
+                        cpu@0 {
+                                compatible = "arm,cortex-a9";
+                                reg = <b>&lt;0&gt;</b>;
+                                next-level-cache = &lt;&amp;L2&gt;;
+                                clocks = &lt;&amp;clk_controller 0&gt;;
+                                clock-names = "cpu";
+                                vdd-supply = &lt;&amp;vdd_supply0&gt;;
+                                operating-points-v2 = &lt;&amp;cpu_opp_table&gt;;
+                        };
+
+                        cpu@1 {
+                                compatible = "arm,cortex-a9";
+                                reg = <b>&lt;1&gt;</b>;
+                                next-level-cache = &lt;&amp;L2&gt;;
+                                clocks = &lt;&amp;clk_controller 0&gt;;
+                                clock-names = "cpu";
+                                vdd-supply = &lt;&amp;vdd_supply0&gt;;
+                                operating-points-v2 = &lt;&amp;cpu_opp_table&gt;;
+                        };
+                };
+
+                cpu_opp_table: opp_table {
+                        compatible = "operating-points-v2";
+                        opp-shared;
+
+                        opp@1000000000 {
+                                opp-hz = /bits/ 64 <b>&lt;1000000000&gt;</b>;
+                                opp-microvolt = &lt;990000 1000000 1050000&gt;;
+                                opp-microamp = <b>&lt;70000&gt;</b>;
+                                clock-latency-ns = <b>&lt;300000&gt;</b>;
+                                opp-suspend;
+                        };
+                        opp@1100000000 {
+                                opp-hz = /bits/ 64 <b>&lt;1100000000&gt;</b>;
+                                opp-microvolt = &lt;1090000 1100000 1150000&gt;;
+                                opp-microamp = <b>&lt;80000&gt;</b>;
+                                clock-latency-ns = <b>&lt;310000&gt;</b>;
+                        };
+                        opp@1200000000 {
+                                opp-hz = /bits/ 64 <b>&lt;1200000000&gt;</b>;
+                                opp-microvolt = &lt;1190000 1200000 1250000&gt;;
+                                opp-microamp = <b>&lt;90000&gt;</b>;
+                                clock-latency-ns = <b>&lt;290000&gt;</b>;
+                                turbo-mode;
+                        };
+                };
+        };</code></pre>
+</td></tr></table>
+<ul>
+<li>
+<p>
+Platform specific code
+</p>
+</li>
+</ul>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>        const char *name[] = {"vdd"};
+        struct opp_table *opp_table;
+
+        opp_table = dev_pm_opp_set_regulators(dev, &amp;name, ARRAY_SIZE(name));
+        if (IS_ERR(opp_table))
+                dev_err(dev, "Failed to set regulators: %d\n", PTR_ERR(opp_table));</code></pre>
+</td></tr></table>
+<ul>
+<li>
+<p>
+Consumer driver responsible for DVFS
+</p>
+</li>
+</ul>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>        ret = dev_pm_opp_set_rate(dev, target_freq);
+        if (ret)
+                dev_err(dev, "Failed to set rate: %d\n", ret);</code></pre>
+</td></tr></table>
+<p>With these enhancements in the OPP core, using the standard interfaces like
+clocks and regulators, the device drivers are simplified to great extent. Going
+forward we should enhance the OPP core further to keep all future DVFS related
+configurations at a single place.</p>
+<p><a href="mailto:viresh.kumar@linaro.org">Viresh Kumar</a></p>
+<p></p>
+<p></p>
+<hr><p><small>
+Last updated
+ 2017-04-10 13:39:11 IST
+</small></p>
+</body>
+</html>

@@ -1,0 +1,16 @@
+During the link:https://lwn.net/Articles/687511[4.6] development cycle, the OPP
+framework gained the infrastructure to do
+link:https://en.wikipedia.org/wiki/Dynamic_voltage_scaling[DVFS] on behalf of
+the device drivers. This helps in reducing the complexity of the device drivers,
+which can focus on their platform specific details now. The rest of this article
+discusses what has changed and how can we use it to simplify our device drivers.
+
+Until Linux kernel release link:https://lwn.net/Articles/679931[4.5], the
+operating performance points (OPP) framework was acting as a helper library that
+provided table of voltage-frequency pairs (with some additional information) for
+the kernel. Kernel frameworks, like cpufreq and devreq, used these OPP tables to
+perform dynamic voltage and frequency scaling (DVFS) for the devices. The OPP
+framework creates these tables dynamically via platform specific code and
+statically from Device Tree
+(link:https://www.kernel.org/doc/Documentation/devicetree/usage-model.txt[DT])
+blobs.

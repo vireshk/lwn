@@ -1,0 +1,124 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="generator" content="AsciiDoc 8.6.9">
+<title>CPU frequency governors and Remote callbacks</title>
+</head>
+<body>
+<h1>CPU frequency governors and Remote callbacks</h1>
+<p>
+</p>
+<a name="preamble"></a>
+<p>The 4.14 kernel release will enable the CPU frequency scaling governors to
+update the frequency of the CPUs remotely from any other CPU in the system; Of
+course, only if the architecture permits it in the first place. This shall
+improve performance of the cpufreq governors that change the CPU frequency
+dynamically without need of any manual intervention; The affected governors are
+schedutil, ondemand and, conservative.</p>
+<p>For a very long time, the cpufreq governors relied on the kernel timer
+infrastructure to get poked, after the sampling period time has passed since the
+last time frequency was evaluated. That had its shortcomings; the biggest one
+was that the cpufreq governors were being <strong>reactive</strong>, while we wanted them to be
+<strong>proactive</strong>. They were termed reactive, as they chose the next frequency based
+on the load pattern in the previous sampling period. And there is no guarantee
+that the same load pattern (as the previous sampling period) will follow
+after we change the frequency. Over that, there was no co-ordination between the
+cpufreq governors and the task scheduler. We wanted the cpufreq governors to be
+proactive and choose a frequency which suits the load that the system is going
+to have in the next sampling period.</p>
+<p>In the <a href="https://lwn.net/Articles/687511/">4.6 kernel release</a>, Rafael J.
+Wysocki removed that dependency on the kernel timers and placed hooks within the
+scheduler. The scheduler now calls these hooks at certain events, like while
+attaching or detaching a sched-entity to a runqueue or when the utilization of
+the runqueue changes. The hooks are implemented by individual cpufreq governors
+that want to get poked by the scheduler on such events.</p>
+<p>The cpufreq govenor&#8217;s register and unregister their CPU utilization update
+callbacks with the task scheduler using the following interfaces:</p>
+<pre><code>        void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
+                        void (*func)(struct update_util_data *data, u64 time, unsigned int flags));
+        void cpufreq_remove_update_util_hook(int cpu);</code></pre>
+<p>Where, the <code>struct update_util_data</code> is defined as:</p>
+<pre><code>        struct update_util_data {
+               void (*func)(struct update_util_data *data, u64 time, unsigned int flags);
+        };</code></pre>
+<p>The scheduler internally keeps per-cpu pointers, <code>cpufreq_update_util_data</code>, to
+the <code>struct update_util_data</code> which is passed to the
+<code>cpufreq_add_update_util_hook()</code> routine. Only one callback can be registered
+per CPU, and the next ones will fail (with kernel splat). The scheduler starts
+calling the <code>cpufreq_update_util_data-&gt;func</code> callback from the very next event
+that happens after the per-cpu pointer, <code>cpufreq_update_util_data</code>, is set.</p>
+<p>The legacy governors (ondemand and conservative) are still considered as
+reactive, as they continue to rely on the data available from the last sampling
+period to find the next frequency to run. Specifically, they calculate CPU load
+based on how much time a CPU was idle in the last sampling period. However, the
+schedutil governor is considered proactive as it calculates the next frequency
+based on the average utilization of the CPU&#8217;s current
+<a href="https://en.wikipedia.org/wiki/Completely_Fair_Scheduler">CFS</a> runqueue; The
+schedutil governor picks the max frequency for a CPU however, if any Realtime or
+Deadline tasks are available to run.</p>
+<hr>
+<h2><a name="_remote_callbacks"></a>Remote callbacks</h2>
+<p>Until the 4.13 kernel release, the scheduler calls these utilization update
+hooks only if the target runqueue, whose utilization has changed, is the
+runqueue of the local CPU. While this works fine for most of the scheduler
+events, it doesn&#8217;t work that well for some. This mostly affects performance of
+only the schedutil cpufreq governor, as the other ones don&#8217;t take CFS&#8217;s
+average utilization into consideration while calculating next frequency.</p>
+<p>With <a href="https://en.wikipedia.org/wiki/Android_(operating_system)">Android</a> UI
+(user interface) and benchmarks, the latency of cpufreq response to certain
+scheduling events can become very critical. As the cpufreq callbacks aren&#8217;t
+called from remote CPUs currently (until 4.13), it means there are certain
+situations where a target CPU may not run the cpufreq governor for some time.</p>
+<p>One test-case to show such behavior is where a task A is running on a CPU X, and
+task B is enqueued on the CPU X, from another CPU Y. If the newly enqueued
+task has maximum demand initially, this should result in CPU X increasing its
+frequency immediately (based on the utilization average of its CFS runqueue).
+But because of the above mentioned limitation though, this does not occur as the
+task was enqueued by a remote CPU. The schedutil cpufreq governor&#8217;s utilization
+update hook will get called only on the next scheduler event then, which may
+happen only after <code>TICK_NSEC</code> in the worst case; And <code>TICK_NSEC</code> is at-least 4
+ms for most of the ARM64 bit platforms. That is quite bad for performance
+critical tasks, like Android UI.</p>
+<p>While we do want to change the frequency of the CPUs remotely, the architecture
+may not always allow it. For example in case of the X86 architecture, the CPU
+frequency is updated by writing to local per-cpu registers which the remote CPUs
+can&#8217;t do. And sending an IPI to the target CPU, just to update its frequency,
+sounds a bit overdone and will add unnecessary noise for the scheduler. On the
+other hand, updating CPU frequency on the ARM architecture is normally
+CPU-independent and any CPU can change frequency of any other CPU.</p>
+<p>Thus, the <a href="https://marc.info/?l=linux-kernel&amp;m=150122447311329&amp;w=2">patchset</a>
+enabling remote callbacks took the middle approach and avoided sending IPIs to
+the target CPU. The patchset is already queued in the
+<a href="https://git.kernel.org/pub/scm/linux/kernel/git/rafael/linux-pm.git/log/?h=linux-next">PM
+tree</a> for the 4.14-rc1 kernel release. The frequency of a CPU can now be changed
+remotely:</p>
+<ul>
+<li>
+<p>
+by a CPU that shares cpufreq policy with the target CPU; That is, both the
+  CPUs share their clock and voltage rails and change performance state
+  together.
+</p>
+</li>
+<li>
+<p>
+from any other CPU on the system, if the cpufreq policy of the target CPU has
+  the <code>policy-&gt;dvfs_possible_from_any_cpu</code> field set to <code>true</code>. This is a new
+  field and must be set by the cpufreq driver from its <code>cpufreq_driver-&gt;init()</code>
+  callback if it allows changing frequencies from CPUs across cpufreq policies.
+  The <code>drivers/cpufreq/cpufreq-dt.c</code> driver is updated to enable it for now.
+</p>
+</li>
+</ul>
+<p>Remote cpufreq callbacks will be enabled (by default) from the 4.14 kernel
+release and they shall improve performance of the schedutil governor, for
+certain specific scenarios (as described earlier).</p>
+<p></p>
+<p></p>
+<hr><p><small>
+Last updated
+ 2017-08-18 15:29:44 IST
+</small></p>
+</body>
+</html>

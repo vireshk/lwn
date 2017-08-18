@@ -1,0 +1,167 @@
+Power-efficient workqueues were first introduced in the
+link:https://lwn.net/Articles/565482/[3.11 kernel release]; since then, fifty or
+so subsystems and drivers have been updated to use them. These workqueues can be
+especially useful on handheld devices (like tablets and smartphones), where
+power is at a premium.  ARM platforms with power-efficient workqueues enabled on
+Ubuntu and Android have shown significant improvements in energy consumption (up
+to 15% for some use cases.
+
+Workqueues (wq) are the most common bottom-half mechanism used in the Linux
+kernel for cases where an asynchronous execution context is required. That
+context is provided by the worker kernel threads, which are woken whenever a
+work item is queued for them.  A workqueue is represented by the
+`workqueue_struct` structure, and work items are represented by `struct
+work_struct`. The latter includes a pointer to a function which is called by the
+worker (in process context) to execute the work. Once the worker has finished
+processing all the work items queued on the workqueue, it becomes idle.
+
+The most common APIs used to queue work are:
+
+....
+    bool queue_work(struct workqueue_struct *wq, struct work_struct *work);
+    bool queue_work_on(int cpu, struct workqueue_struct *wq, struct work_struct *work);
+    bool queue_delayed_work(struct workqueue_struct *wq, struct delayed_work *dwork, 
+			    unsigned long delay);
+    bool queue_delayed_work_on(int cpu, struct workqueue_struct *wq, 
+			       struct delayed_work *work, unsigned long delay);
+....
+
+The first two functions queue the work for immediate execution, while the other
+two queue it to run after `delay` jiffies have passed. The work queued by
+`queue_work_on()` (and `queue_delayed_work_on()`) is executed by the worker
+thread running on the designated `cpu`.  The work queued by `queue_work()` (and
+`queue_delayed_work()`), instead, can be run by any CPU in the system (though it
+doesn't really happen that way, as will be described later).
+
+The workqueue pinning problem
+
+A fairly common use case for workqueues in the kernel is to repetitively run and
+requeue the work from the work function itself, as we need to do some task
+periodically.  For example:
+....
+    static void foo_handler(struct work_struct *work)
+    {
+        struct delayed_work *dwork = to_delayed_work(work);
+
+	/* Do some work here */
+
+	queue_delayed_work(system_wq, dwork, 10);
+    }
+
+    void foo_init(void)
+    {
+        struct delayed_work *dwork = kmalloc(sizeof(*dwork), GFP_KERNEL);
+
+	INIT_DEFERRABLE_WORK(dwork, foo_handler);
+	queue_delayed_work(system_wq, dwork, 10);
+    }
+....
+
+`foo_init()` allocates the delayed work structure and queues it with a ten-jiffy
+delay.  The work handler (`foo_handler()`) performs the periodic work and queues
+itself again.
+
+One might think that the work will be executed on any CPU (whichever the kernel
+finds to be most appropriate). But that's not really true.  The workqueue core
+will most likely queue it on the local CPU, unless the local CPU isn't part of
+the global `wq_unbound_cpumask`. For an eight-core platform, the work from the
+above example will be executed on the same every time, even if that CPU is idle
+and some of the other seven CPUs were not.
+
+The `wq_unbound_cpumask` is the mask of CPUs which are allowed to execute work
+that isn't queued to a particular CPU (i.e. work queued with queue_work() and
+queue_delayed_work()). It can be found in sysfs as
+`devices/virtual/workqueue/cpumask`.
+This mask is used to keep such work items confined to a specific group of CPUs
+and can be useful in cases like heterogeneous CPU architectures, where we want
+to execute such work items on low-power CPUs only, or with CPU isolation, where
+we don't want such work items to execute on CPUs doing important,
+performance-sensitive work. This mask can't be used to get rid of the pinning
+problem described above, though; if the local CPU is part of the
+`wq_unbound_cpumask`, then queue_work() will keep queuing the work there.
+
+It is probably OK (from power-efficiency point of view) if a CPU is doing some
+other work when it is interrupted by the timer to run a workqueue. But if the
+CPU is brought out of the idle state solely to service the timer and queue the
+work, more power than necessary will be consumed.  Pinning isn't probably good
+for performance either in certain cases, as the selected CPU may not be the best
+available CPU to run the work function. Also, the scheduler is unable to
+load-balance this work with other CPUs and the response time of the work
+function may increase if the target CPU is currently busy.
+
+<h4>Power-efficient workqueues</h4>
+
+The power-efficient workqueue infrastructure is disabled by default, as we may
+want the same work items to be either power or performance-oriented depending on
+the current system configuration.  There workqueues can be enabled by either
+passing `workqueue.power_efficient=true` on the kernel command line or enabling
+the `CONFIG_WQ_POWER_EFFICIENT`  configuration option.  The command line can
+also be used to disable this feature (if enabled in the kernel configuration) by
+setting `workqueue.power_efficient=false`.
+
+Once the power-efficient workqueue functionality is enabled, a workqueue can be
+made to run in the power-efficient mode by passing the `WQ_POWER_EFFICIENT` flag
+to `alloc_workqueue()`  when creating the workqueue. There are two system-level
+workqueues that run in this mode as well: `system_power_efficient_wq` and
+`system_freezable_power_efficient_wq`; they can be used when a private workqueue
+is not needed.
+
+
+Instead of running work on the local CPU, the workqueue core asks the scheduler
+to provide the target CPU for the work queued on unbound workqueues (which
+includes those marked as power-efficient).  So they will not get pinned on a
+single CPU as can happen with regular workqueues. 
+
+
+Unfortunately, that does not mean that the scheduler always picks the optimal
+CPU to run a workqueue task.  The algorithm responsible for picking the CPU for
+a task is complex but, more likely than not, the scheduler will pick the least
+busy CPU among those sharing the same last-level cache. For a multi-cluster
+platform, it will most likely pick a CPU from the same cluster. But if the work
+handler doesn't finish quickly, load balancing will happen and that may move the
+task to another, possibly idle, CPU.
+
+Thus, with the current design of Linux kernel scheduler, we may not get the best
+results (they should still be good enough though) with power-efficient
+workqueues. There is ongoing work (strongly pushed by the ARM community) to make
+the scheduler more power-aware and power-efficient in general; this work will
+also benefit  power-efficient workqueues.  Currently, they are a bit more useful
+(from power-efficiency point of view) with the Android kernel, which carries
+some scheduler modifications to make it more energy-aware.
+
+It is natural to wonder whether all workqueues should run in the power-efficient
+mode.  But power-efficient workqueues have one disadvantage: they may end up
+executing the work item on a different CPU every time, incurring lots of cache
+misses, depending on how much data the work handler works with. This can
+significantly hurt the performance of the system when workqueue tasks run often
+and prefer caches to be hot.  On the other hand, this can be good, performance
+wise, in some cases where we don't need the caches to be hot, as the scheduler
+can do load balancing and the response time for the work items may improve.  So
+one needs to evaluate the users of the workqueues carefully and see which
+configuration (power-efficient or not) they fit best with.
+
+<h4>Power numbers</h4>
+
+link:https://lwn.net/Articles/548281/:[Testing] was done on a 32-bit ARM
+big.LITTLE platform with four Cortex A7 cores and four Cortex A15 cores.  Audio
+was played in background using aplay while rest of the system was fairly idle.
+Linaro's ubuntu-devel distribution was used and the kernel also had some
+out-of-tree scheduler changes.
+
+The results across multiple test iterations showed average improvement of 15.7%
+in energy consumption with power-efficient workqueues enabled. The unit of the
+numbers shown here is Joules.
+
+<blockquote>
+<table class="OddEven">
+<tbody><tr><th></th><th>Vanilla kernel + scheduler patches</th>
+<th>Vanilla Kernel + scheduler patches + power-efficient wq</th></tr><tr>
+</tr><tr><td>A15&nbsp;cluster</td><td align="right">0.322866</td><td align="right">0.2289042</td></tr>
+<tr><td>A7 cluster</td><td align="right">2.619137</td><td align="right">2.2514632</td></tr>
+<tr><td>Total</td><td align="right">2.942003</td><td align="right">2.4803674</td></tr>
+</tbody></table>
+</blockquote>
+
+With the mainline kernel, the power-efficient workqueues will give better
+results today as well, as the scheduler picks  a better target CPU, and it is
+going to further improve as and when the scheduler gets more energy aware.

@@ -72,71 +72,62 @@ the work handler (<code>foo_handler()</code>) performed the periodic work and qu
 work again. One may think that the work will be executed on any CPU (whichever
 the kernel finds to be most appropriate). But that&#8217;s not really true.</p>
 <p>The workqueue core will most likely queue it on the local CPU, unless the local
-CPU isn&#8217;t part of the global <code>wq_unbound_cpumask</code> (i.e. Mask of CPUs which are
-allowed to execute work that isn&#8217;t queued to a particular CPU). For an octa-core
-platform, the work from the above example will get executed only on CPU-X
-every time. Even if that CPU was idle and some of the other 7 CPUs were not.</p>
-<p>The below figure shows this problem:</p>
-<div align="center">
-<img src="./delayed-wq.png" style="border-width: 0;" alt="./delayed-wq.png" width="700" height="400">
-<p><b>Figure 1. </b>The workqueue pinning problem</p>
-</div>
-<p>The delayed work was first queued by code running on CPU1. The CPU became idle
-and went to a low power state. After 10 jiffies, the timer <code>Tw</code> (internally used
-by delayed work infrastructure) fired on CPU1 and brought it out of the low
-power state. The <code>dwork.work</code> is queued from the timer handler and is serviced
-very soon by a worker thread running on CPU1. The work handler (<code>foo_handler()</code>)
-queued the delayed work again, which internally re-armed the timer <code>Tw</code> to fire
-after 10 jiffies. The CPU had nothing else to do and went into low power state
-again. And again the timer <code>Tw</code> brought it out of the low power state after
-10 jiffies.</p>
+CPU isn&#8217;t part of the global <code>wq_unbound_cpumask</code>. For an octa-core platform,
+the work from the above example will get executed only on CPU-X every time. Even
+if that CPU was idle and some of the other 7 CPUs were not.</p>
+<p>The <code>wq_unbound_cpumask</code> is the mask of CPUs which are allowed to execute work
+that isn&#8217;t queued to a particular CPU (i.e. Work queued with queue_work() and
+queue_delayed_work()). This mask is used to keep such work items confined to a
+group of CPUs only and can be quite useful in some cases like heterogeneous CPU
+architectures (where we want to execute such work items on low power CPUs only)
+or with CPU isolation (where we don&#8217;t want such work items to execute on CPUs
+doing important performance sensitive work). This mask can&#8217;t be used to get rid
+of the pinning problem described earlier as we still have the same problem with
+it. If the local CPU is part of the <code>wq_unbound_cpumask</code>, then queue_work()
+will keep queuing the work on local CPU only.</p>
 <p>It is probably fine (from power-efficiency point of view) if the CPU was doing
-some work while being interrupted by the timer <code>Tw</code>. But if the CPU is brought
+some work while being interrupted by the timer. But if the CPU is brought
 out of idle only to service the timer and queue the work, it can be very bad
 from power-efficiency point of view. The CPU can be in a deep idle state (deeper
 the state, more is the penalty), or the CPU can be part of a cluster where all
-CPUs are in low power state (and hence the cluster).</p>
+the CPUs are in low power state (and hence the entire cluster).</p>
 <p>This pinning isn&#8217;t probably good performance wise as well in certain cases, as
 the selected CPU may not be the best available CPU to run <code>foo_handler()</code>. Over
 that, the scheduler wouldn&#8217;t be able to load balance this work with other CPUs
 and the response time of the <code>foo_handler()</code> may increase if the target CPU is
 currently busy.</p>
-<p>There are some benefits of this pinning behavior though. If the <code>foo_handler()</code>
-operates on significant amount of data, it may be better to keep it executing
-on the same CPU every time as the caches would already be hot and we wouldn&#8217;t
-have unnecessary cache misses. Though there are fairly small number of such
-cases where the handlers operate on such data.</p>
 <hr>
 <h2><a name="_power_efficient_workqueue"></a>Power-efficient workqueue</h2>
-<p>The power-efficient workqueue infrastructure is disabled by default. And it can
+<p>The power-efficient workqueue infrastructure is disabled by default, as we may
+want the same work item (like ones used in block layer) to be power or
+performance oriented depending on the current system configuration. And it can
 be enabled in two ways:</p>
 <ul>
+<li>
+<p>
+Pass <code>workqueue.power_efficient=true</code> in boot arguments. OR
+</p>
+</li>
 <li>
 <p>
 Enable <code>CONFIG_WQ_POWER_EFFICIENT</code> in configuration file.
 </p>
 </li>
-<li>
-<p>
-Pass <code>workqueue.power_efficient=true</code> in boot arguments.
-</p>
-</li>
-<li>
-<p>
-<code>workqueue.power_efficient=false</code> can also be used to disable them if enabled
-  in the configuration file.
-</p>
-</li>
 </ul>
+<p>The boot argument can also be used to forcefully disable this feature (if
+enabled in config) by setting <code>workqueue.power_efficient=false</code>.</p>
 <p>Once the power-efficient workqueue functionality is enabled, a workqueue can be
 made power-efficient by passing <code>WQ_POWER_EFFICIENT</code> flag to the
-<code>alloc_workqueue()</code> helper while allocating the workqueue. Internally the
-workqueue core marks the workqueue as <code>WQ_UNBOUND</code>, if power-efficient workqueue
-feature is enabled.</p>
-<p>Instead of queuing work on the local CPU, the workqueue core asks the scheduler
-to provide the target CPU for the work queued on unbound workqueues (i.e. Ones
-that have <code>WQ_UNBOUND</code> set in their flags). And the work doesn&#8217;t get pinned to a
-CPU anymore.</p>
+<code>alloc_workqueue()</code> helper while allocating the workqueue. There are two system
+level workqueues that set necessary flag to make them power-efficient:
+<code>system_power_efficient_wq</code> and <code>system_freezable_power_efficient_wq</code>. And these
+can be used if you don&#8217;t need a private workqueue for your use-case.</p>
+<p>Internally the workqueue core marks the power-efficient workqueues as
+<code>WQ_UNBOUND</code>, if power-efficient workqueue feature is enabled. Instead of
+queuing work on the local CPU, the workqueue core asks the scheduler to provide
+the target CPU for the work queued on unbound workqueues (i.e. Ones that have
+<code>WQ_UNBOUND</code> set in their flags). And the work doesn&#8217;t get pinned to a CPU
+anymore.</p>
 <p>But does the scheduler picks the best CPU from power-efficiency point of view ?
 Not always.</p>
 <p>The scheduler algorithm responsible for picking the next CPU for a task is quite
@@ -146,20 +137,25 @@ last cache level. For a multi cluster platform, it will most likely pick a CPU
 from the same cluster. But if the work handler doesn&#8217;t finish up quickly, load
 balancing will happen and that will move the task to other (possibly idle) CPUs.</p>
 <p>That isn&#8217;t very power-efficient then, isn&#8217;t it ? Yeah, with the current design
-of Linux kernel scheduler, we may not get the best results with power-efficient
-workqueues. There is ongoing work (strongly pushed by the ARM community) to
-make the scheduler more power-aware and power-efficient and power-efficient
-workqueues will be very useful then.</p>
-<p>Currently, they are quite useful (from power-efficiency point of view) with the
-Android kernel as that carries some scheduler modifications to make it energy
-aware.</p>
-<p>As said earlier, power-efficient workqueues also make load balancing possible
-for these work items with the upstream kernel and that can be good in some cases
-for sure (where we wouldn&#8217;t have unnecessary cache misses).</p>
-<p>There are two system level workqueues that set necessary flag to make them
-power-efficient: <code>system_power_efficient_wq</code> and
-<code>system_freezable_power_efficient_wq</code>. And these can be used if you don&#8217;t need a
-private workqueue for your use-case.</p>
+of Linux kernel scheduler, we may not get the best results (they should still be
+good enough though) with power-efficient workqueues. There is ongoing work
+(strongly pushed by the ARM community) to make the scheduler more power-aware
+and power-efficient and power-efficient workqueues will be very useful then.</p>
+<p>Currently, they are a bit more useful (from power-efficiency point of view) with
+the Android kernel as that carries some scheduler modifications to make it
+energy aware.</p>
+<p>Should we make all workqueues power-efficient ?</p>
+<p>There is one disadvantage of power-efficient workqueue. We may end up executing
+the work item on a different CPU every time and that may incur lots of cache
+misses, depending on how much data does the work handler work with. And this can
+significantly hit the performance of the system in case of certain workqueue
+users which run very often and prefer caches to be hot with data accessed from
+the work handler.</p>
+<p>On the other hand, this can be good performance wise in some cases where we
+don&#8217;t need the caches to be hot, as the scheduler can do load balancing then and
+the response time for the work items may improve.</p>
+<p>And so one needs to evaluate the users of the workqueues carefully and see which
+configuration (power-efficient or not) they fit best with.</p>
 <hr>
 <h2><a name="_power_numbers"></a>Power numbers</h2>
 <p><a href="https://lwn.net/Articles/548281/">Testing</a> was done on 32 bit ARM big LITTLE
@@ -185,7 +181,7 @@ going to further improve as and when the scheduler gets more energy aware.</p>
 <p></p>
 <hr><p><small>
 Last updated
- 2017-08-11 17:09:52 IST
+ 2017-08-15 09:10:30 IST
 </small></p>
 </body>
 </html>

@@ -23,9 +23,9 @@ to have in the next sampling period.
 In the link:https://lwn.net/Articles/687511/[4.6 kernel release], Rafael J.
 Wysocki removed that dependency on the kernel timers and placed hooks within the
 scheduler. The scheduler now calls these hooks at certain events, like while
-attaching or detaching a sched-entity to a runqueue or when the utilization of
-the runqueue changes. The hooks are implemented by individual cpufreq governors
-that want to get poked by the scheduler on such events.
+attaching or detaching a task to a runqueue or when the utilization of the
+runqueue changes. The hooks are implemented by individual cpufreq governors that
+want to get poked by the scheduler on such events.
 
 The cpufreq govenor's register and unregister their CPU utilization update
 callbacks with the task scheduler using the following interfaces:
@@ -86,7 +86,11 @@ task was enqueued by a remote CPU. The schedutil cpufreq governor's utilization
 update hook will get called only on the next scheduler event then, which may
 happen only after `TICK_NSEC` in the worst case; And `TICK_NSEC` is at-least 4
 ms for most of the ARM64 bit platforms. That is quite bad for performance
-critical tasks, like Android UI.
+critical tasks, like Android UI. Most of the Android devices refresh the screen
+at 60 fps (frames per second) rate; That is, 16 ms (1/60 second) per frame. The
+screen rendering has to finish within these 16 ms to avoid jank (Jerky, unsmooth
+motion). If 4 ms are taken by the cpufreq governor to update the frequency, then
+the user experience isn't going to be nice.
 
 While we do want to change the frequency of the CPUs remotely, the architecture
 may not always allow it. For example in case of the X86 architecture, the CPU

@@ -1,0 +1,157 @@
+Active state management of power domains
+========================================
+
+The Linux kernel power domains are used to group devices that share clock or
+other power resources and are all enabled or disabled together; Though these
+devices may further have fine-grained control over individual resources. Power
+domains can be nested; The nested domain is called as sub-domain of the master
+domain.
+
+The power domains support a limited number of operations today, most of which
+eventually resolve to enabling or disabling the power domain; Though the generic
+power domains (aka genpd) support idle states the of power domains as well. The
+4.15 kernel release, though, will enhance the generic power domain core to
+support active state management of the generic power domains.
+
+Some platforms have the capability to control the active states of their power
+domains. The active states of power domains are called as `performance states`
+within the Linux kernel. The performance states (within the genpd core) are
+identified by positive integer values; A lower value represents a lower
+performance state. All the devices controlled by a power domain can vote for a
+target performance state, based on their own requirements, and the power domain
+will get configured to the highest target performance state requested by its
+devices. The performance state zero is special; Devices can request for
+performance state zero if they want to drop their vote, i.e. They do not want to
+get considered in finding the target performance state of the power domain.
+
+The following helper is introduced for a device to request a performance state
+for its power domain.
+
+....
+    int dev_pm_genpd_set_performance_state(struct device *dev, unsigned int state);
+....
+
+Here, `dev` is the pointer to the device structure and `state` is the target
+performance state of the power domain that controls the device. Once called,
+this updates the performance state constraint of the device on its PM domain.
+Following that the genpd core finds the next performance state of the genpd
+based on the requests from the devices the genpd controls, and then updates the
+performance state of the power domain in a platform dependent way. This
+happens synchronously and the performance state of the power domain is updated,
+if required, before this helper returns. `dev_pm_genpd_set_performance_state()`
+returns zero on success and an error number otherwise; Return value `-ENODEV`
+is special and is returned if the power domain of the device doesn't support
+configuring performance states.
+
+On a call to `dev_pm_genpd_set_performance_state()`, the genpd core calls the
+power domain specific callback (described below) if the performance state of the
+power domain needs to be updated. This callback must be supplied by the power
+domain drivers that support configuring performance states.
+
+....
+    struct generic_pm_domain {
+        ...
+
+	int (*set_performance_state)(struct generic_pm_domain *genpd, unsigned int state);
+
+	...
+    };
+....
+
+Here, `genpd` is the generic power domain and `state` is the target performance
+state based on the requests from all the devices managed by the `genpd`. As
+pointed out earlier, if the genpd doesn't have this callback set, the helper
+`dev_pm_genpd_set_performance_state()` would return `-ENODEV`.
+
+The mechanism by which the performance state of a power domain is changed is
+left for the implementation and is platform dependent. For some platforms the
+`set_performance_state()` callback may configure some regulator(s)
+and/or clock(s), which are also managed by Linux. While in other cases the
+`set_performance_state()` callback may end up informing the firmware running on
+an external processor (not managed by Linux) about the target performance state,
+which eventually may program the power resources locally.
+
+Also note that in the current implementation, performance state updates aren't
+propagated to master domains from sub-domains and only devices (i.e. no
+sub-domains) directly controlled by the power domain are considered while
+finding its effective performance state. The reason being none of the current
+hardware designs have such a configuration that need this feature. And more
+thought needs to be put on that for various reasons. For example, there may not
+be one-to-one mapping between performance states of sub-domains and their master
+domains. We can also have multiple master domains for a sub-domain and the
+master domains may need to be configured to different performance states for a
+single performance state of the sub-domain. And so this work is deferred until
+the time we have hardware that needs it.
+
+Interaction with OPP layer
+--------------------------
+
+While a lot of devices do not need to change their performance state
+requirements on the fly, there are few that do based on their own operating
+performance point (OPP). Example of such a device can be Multi Media Card (MMC)
+controller or a CPU.
+
+Devices with fixed performance state requirements can call
+`dev_pm_genpd_set_performance_state()` just once, while they are enabled by
+their drivers and they don't need to worry about power domain's performance
+state after that. But other devices may need to call
+`dev_pm_genpd_set_performance_state()` whenever they change their OPP, if the
+performance state is different for the new OPP. The OPP core is enhanced to
+store a performance state corresponding to each OPP node of the device and can
+do the conversion from an OPP to device's power domain's performance state now.
+The OPP core helper `dev_pm_opp_set_rate()` (described
+link:https://lwn.net/Articles/718632/[previously]) is also updated to handle
+performance state updates automatically along with clock and regulator updates.
+
+Ideally, the OPP core should get this information from the device tree (DT)
+somehow, but after several rounds of
+link:https://marc.info/?l=linux-kernel&m=149410710629056&w=2[discussion] over
+LKML we decided to merge a non DT solution first and then attempt to add new DT
+bindings for power domain performance states. As a result, the OPP core gained a
+pair of new helpers to link device's OPP to its power domain's performance
+state.
+
+....
+    struct opp_table *dev_pm_opp_register_get_pstate_helper(struct device *dev,
+		    int (*get_pstate)(struct device *dev, unsigned long rate));
+....
+
+Here, `dev` is the pointer to the device structure and `get_pstate()` is the
+platform specific callback that takes the device pointer `dev` and its clock
+`rate` as arguments and returns performance state corresponding to device's
+`rate` on success or an error number on failure.
+`dev_pm_opp_register_get_pstate_helper()` returns pointer to the OPP table on
+success and an error number (cast as pointer) on failure. It must be called
+before any OPPs are added for the device, as the OPP core calls this callback
+while OPPs are added to get performance state corresponding to OPPs (and hence
+target frequencies). `dev_pm_opp_unregister_get_pstate_helper()` takes a
+reference of the OPP table and that must be put (so that the table can get freed
+once we don't need it anymore) with the help of following helper:
+
+....
+    void dev_pm_opp_unregister_get_pstate_helper(struct opp_table *opp_table);
+....
+
+Here, `opp_table` is the pointer to the OPP table, earlier returned by
+`dev_pm_opp_register_get_pstate_helper()`.
+
+Note that the above pair of helpers are added temporarily to the OPP core to
+support initial platforms, that need to configure performance states of power
+domains. These helpers will get removed once we have proper DT bindings (and
+corresponding kernel code) in place.
+
+The basic infrastructure is in place now to implement platform specific power
+domain drivers that allow configuring performance state and its time to take
+this work to the next level. The
+link:https://marc.info/?l=linux-kernel&m=150945404818511&w=2[proposal] for DT
+bindings to get the performances state information is already posted on LKML and
+code updates will be sent once DT bindings are merged. In future, we may also
+want to drive the devices controlled by a power domain at the highest OPP
+permitted by the current performance state of the power domain. For example, a
+device may have requested performance state 5 as it needs to run at 900 MHz
+currently, but because of the votes from other devices (controlled by the same
+power domain) the effective performance state selected is 8. At this point it
+maybe better, power and performance wise, to run the device at 1.3 GHz (highest
+device OPP supported at performance state 8) as that may not result in lot of
+power consumption as the power domain is already configured for state 8. But
+yeah, it needs more thinking and work is in progress for that.

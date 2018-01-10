@@ -1,0 +1,346 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="generator" content="AsciiDoc 8.6.9">
+<title>The Boot Constraint Subsystem</title>
+</head>
+<body>
+<h1>The Boot Constraint Subsystem</h1>
+<p>
+</p>
+<a name="preamble"></a>
+<p>The Linux kernel <a href="">4.16-rc1</a> release includes support for the "Boot
+Constraint" subsystem. The purpose of this subsystem is to honor the constraints
+put on the devices by the
+<a href="https://en.wikipedia.org/wiki/Booting">bootloader</a> before the devices are
+handed over to the operating system (OS), Linux in our case. In may cases we
+want these devices to continue working as is until the time a Linux driver
+reconfigures them.</p>
+<p>The bootloader is a piece of code that loads the operating system, normally
+after initializing a bunch of
+<a href="https://en.wikipedia.org/wiki/Semiconductor_intellectual_property_core">IP
+blocks</a> which are required during the boot process, e.g. flash memory
+controller. More than one bootloader may take part in booting the OS, wherein
+the first stage bootloader loads the second stage bootloader and the second
+state bootloader loads the OS. Some of the most common bootloaders used with
+Linux are LILO (LInux LOader), LOADLIN (LOAD LINux), GRUB (GRand Unified
+Bootloader), U-BOOT (Universal Bootloader) and UEFI (Unified Extensible Firmware
+Interface).</p>
+<p>The bootloaders enable (power ON) and configure lot of devices before passing
+their control to Linux and it is important to hand them over to Linux in a
+glitch-free manner for various reasons, for example to provide a good user
+experience.</p>
+<p>A typical example of that can be the display or
+<a href="https://en.wikipedia.org/wiki/Liquid-crystal_display">LCD</a> controller, which
+is used by the bootloaders to show image(s) while the platform boots Linux. The
+LCD controller may be using multiple resources, like clk, regulators, etc, that
+are shared with other devices. These shared resources must be configured in such
+a way that they satisfy need of all the devices that use them. If another
+device’s (X) driver gets probed before the LCD controller driver, then it may
+end up disabling or re-configuring those resources to ranges satisfying only the
+probed device (X) and that may make the LCD screen unstable and present a bad
+user experience.  Another very common use case is of the debug serial port,
+enabled by the bootloader, which may be used by the kernel to debug early kernel
+oops with the <code>earlycon</code> command line parameter.</p>
+<p>Of course we can have more complex cases where the same resource is getting used
+by multiple devices and the order in which these devices get probed wouldn&#8217;t
+matter as the device which gets probed first, may end up breaking rest of the
+devices that share the resources with it. We can also have a case where the
+resources are not shared, but the kernel disables them forcefully if no users
+appear until a certain point in the kernel boot process. An example of that is
+the clock framework which disables unused clocks from <code>late_initcall_sync()</code>
+initcall level.</p>
+<p>The boot constraint core solves these complex boot order dependencies between
+otherwise unrelated devices by setting the constraints on the shared resources,
+on behalf of the bootloader, before any of these devices are probed.</p>
+<p>For example, if the multimedia controller (MMC) and the LCD controller share the
+clock and regulator resources and both are enabled by the bootloader, then the
+boot constraint core adds the constraint on those resources before LCD or MMC
+controllers are probed by their kernel device drivers.  The constraints are set
+differently for each resource type; It can be a simple <code>clk_enable()</code> operation
+for the clock constraint for example.  The MMC and LCD controller can get probed
+in any order later on and the constraints added by the boot constraint core will
+be honored by the resources until the time the constraints are removed.</p>
+<p>The boot constraints for a device are added by the platform specific code
+currently. These constraints remain set until the time a driver tries to probe
+the device; The constraints are removed automatically by the drivers core
+after the device is probed successfully or unsuccessfully, except for the case
+where probe has deferred by returning <code>-EPROBE_DEFER</code> from the driver as some of
+the required resources to probe the device weren&#8217;t available. The constraints
+are removed even for cases where probing of the device failed because the
+kernel will not retry probing the device by again by itself and there is no
+point keeping the constraint set in this case. This behavior can be modified in
+future if we have a use case where it makes sense to keep the constraint set
+even after failing to probe the device.</p>
+<hr>
+<h2><a name="_adding_boot_constraints"></a>Adding boot constraints</h2>
+<p>A boot constraint defines a configuration requirement for the device, set by the
+bootloader. For example, if the clock is enabled for a device by the bootloader
+and we want the device to be working as is until the time the device is probed
+by its driver, then keeping this clock enabled is one of the boot constraint.</p>
+<p>The boot constraint core supports three type of boot constraints currently,
+based on resource types and they are represented by the below enumeration:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>enum dev_boot_constraint_type {
+        DEV_BOOT_CONSTRAINT_CLK,
+        DEV_BOOT_CONSTRAINT_PM,
+        DEV_BOOT_CONSTRAINT_SUPPLY,
+};</code></pre>
+</td></tr></table>
+<p><code>DEV_BOOT_CONSTRAINT_CLK</code> represents the clock boot constraint,
+<code>DEV_BOOT_CONSTRAINT_PM</code> represents the power-domain boot constraint and
+<code>DEV_BOOT_CONSTRAINT_SUPPLY</code> represents the power-supply boot constraint. This
+list can be expanded in future and basically any resource type can have
+constraints set for it.</p>
+<p>A single boot constraint, of any type, can be added for a device using the below
+helper. This must be called before the device is probed by its driver, otherwise
+the boot constraint will never get removed and may result in unwanted behavior
+of the hardware.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>int dev_boot_constraint_add(struct device *dev, struct dev_boot_constraint_info *info);</code></pre>
+</td></tr></table>
+<p>Here, <code>dev</code> represents the device for which the boot constraint is getting
+added, and <code>info</code> defines the boot constraint. This returns 0 on success, and
+a negative error number otherwise.</p>
+<p>The <code>struct dev_boot_constraint_info</code> contains an instance of the <code>struct
+dev_boot_constraint</code> and the optional <code>free_resources()</code> callback and its
+parameter. The boot constraint core calls the <code>free_resources()</code> callback, if
+available, with <code>free_resources_data</code> as its argument right after the constraint
+is removed. This callback can be implemented by platforms if they want to free
+some resources after the constraint is removed.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct dev_boot_constraint_info {
+        struct dev_boot_constraint constraint;
+
+        /* This will be called just before the constraint is removed */
+        void (*free_resources)(void *data);
+        void *free_resources_data;
+};</code></pre>
+</td></tr></table>
+<p>The <code>struct dev_boot_constraint</code> represents the actual constraint. It contains
+<code>type</code> of the boot constraint and constraint specific <code>data</code> as each constraint
+type have different requirements. The <code>data</code> is mandatory for clock and
+power-supply boot constraints, while it is not required for the PM boot
+constraint.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct dev_boot_constraint {
+        enum dev_boot_constraint_type type;
+        void *data;
+};</code></pre>
+</td></tr></table>
+<p>The clock boot constraint is represented by the <code>struct
+dev_boot_constraint_clk_info</code>, which contains only the <code>name</code> string. This
+string must match with the <code>connection-id</code> of the device&#8217;s clock, otherwise
+the call to routine <code>clk_get(dev, name)</code>, called internally by the boot
+constraint core, will fail. The boot constraint core adds the clock constraint
+by performing the <code>clk_prepare_enable()</code> operation for the device&#8217;s clock and
+removes it by performing the <code>clk_disable_unprepare()</code> operation.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct dev_boot_constraint_clk_info {
+        const char *name;
+};</code></pre>
+</td></tr></table>
+<p>The power-supply constraint is represented by the <code>struct
+dev_boot_constraint_supply_info</code>, which contains the <code>name</code> string, <code>u_volt_min</code>
+and <code>u_volt_max</code>. The <code>name</code> string must match with the power-supply name as the
+boot constraint core uses it as an argument to the <code>regulator_get(dev, name)</code>
+helper.  <code>u_volt_min</code> and <code>u_volt_max</code> define the minimum and maximum voltage
+allowed by the device (for which the constraint is added) under this constraint.
+The boot constraint core adds the power-supply constraint by first performing
+the <code>regulator_set_voltage()</code> operation (only if both <code>u_volt_min</code> and
+<code>u_volt_max</code> have non zero values), followed by the <code>regulator_enable()</code>
+operation. The constraint is removed by performing the <code>regulator_disable()</code>
+operation followed by the <code>regulator_set_voltage(reg, 0, INT_MAX)</code> operation,
+only if <code>regulator_set_voltage()</code> was called earlier.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct dev_boot_constraint_supply_info {
+        const char *name;
+        unsigned int u_volt_min;
+        unsigned int u_volt_max;
+};</code></pre>
+</td></tr></table>
+<p>The PM boot constraint doesn&#8217;t need any data and the boot constraint core adds
+the constraint by attaching the power-domain to the device by performing the
+<code>dev_pm_domain_attach()</code> operation, which internally enables the power-domain.
+The power-domain is normally attached to the device by the driver core while it
+binds a driver to the device, which wouldn&#8217;t happen in this case as the
+power-domain is already attached by the boot constraint core. For this reason,
+the boot constraint core does not detach the power-domain while removing the
+constraint, as that will be done by the driver core once the driver gets
+detached from the device at a later point of time.</p>
+<p>Once the boot constraints are added, they will be honored by the boot constraint
+core until the time a driver tries to probe the device. As mentioned earlier,
+the constraints for a device are removed automatically by the driver core. It
+does so with the help of following helper, which must not be called directly by
+the platforms:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>void dev_boot_constraints_remove(struct device *dev);</code></pre>
+</td></tr></table>
+<p>Here, <code>dev</code> is the device for which the boot constraints are getting removed.</p>
+<p>There is a limitation with the <code>dev_boot_constraint_add()</code> helper though. What
+if the resources, like clk or regulator, required to set the constraint for the
+device aren&#8217;t available when the <code>dev_boot_constraint_add()</code> helper is called ?
+How do we make sure that the boot constraint core gets a chance to set the
+constraints before the device is probed by its driver, if the resources are
+going to be available at a later point of time ?</p>
+<p>The solution of these problems is twofold; First we have to make the process
+of adding constraints deferrable, so that the driver core tries adding
+constraints again at a later point of time; And second we have to make sure that
+the boot constraint core gets a chance to add the constraints right
+after the resources are made available and before the device (to which we are
+adding the constraints) is probed by its driver.</p>
+<p>The first solution is implemented with the help of (virtual) device-driver
+pairs; The boot constraint core implements an internal platform driver with the
+name <code>"boot-constraints-dev"</code> and its <code>boot_constraint_probe()</code> callback gets
+called for every device registered with the same name as the driver. An internal
+routine <code>dev_boot_constraint_add_deferrable()</code>, which is called by one of the
+exported helper described later, creates a platform device
+(with name <code>"boot-constraints-dev"</code>) for every device constraint we want to add.
+The <code>boot_constraint_probe()</code> callback gets called for each of these platform
+devices (or individual constraints) and tries to add the respective constraint.
+If the resources required for adding the constraint aren&#8217;t available yet, the
+probe callback returns <code>-EPROBE_DEFER</code> and the driver core moves the virtual
+device to the list of deferred devices, which are re-probed at a later point of
+time. On successful probing of these virtual devices, the constraints are added
+with the boot constraints core. The <code>dev_boot_constraint_add_deferrable()</code>
+helper uses the <code>free_resources()</code> callback and its argument, present in the
+<code>struct dev_boot_constraint_info</code>, to unregister the virtual device once the
+constraint is removed.</p>
+<p>The second problem of the race with the actual device getting probed before the
+constraints are set once the resources are made available, is solved by
+requesting the driver core to start probing of the deferred devices immediately
+after <code>boot_constraint_probe()</code> returned <code>-EPROBE_DEFER</code> for any of the
+constraints. Normally the driver core allows re-probing of the deferred devices
+from an internal routine registered with <code>late_initcall()</code>.  But if the boot
+constraint core finds that it failed to add one of the constraint because its
+resources weren&#8217;t available, then it requests the drivers core to enable the
+re-probing of deferred devices from that point itself. With that the driver core
+tries to re-probe the deferred devices after every new device is registered with
+it and so the constraint specific platform device gets a chance to get probed
+before the actual device for which constraints are getting added. Yes, this puts
+extra burden on the system during boot process and may make the kernel boot
+process slightly longer, but it is the best we could do as an initial solution.
+Later on we may want the boot constraint core to register with the resource
+specific subsystems, so that they can inform the boot constraint core once the
+resource is available. This way the boot constraint core can get a chance to set
+the constraint before the actual device gets probed. But that is future work.</p>
+<p>In order to support deferrable constraints and simplify adding multiple boot
+constraints for a platform, the boot constraints core provides another helper
+which calls the internal routine <code>dev_boot_constraint_add_deferrable()</code>
+described earlier.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>void dev_boot_constraint_add_deferrable_of(struct dev_boot_constraint_of *oconst, int count);</code></pre>
+</td></tr></table>
+<p>Here, <code>oconst</code> represents an array of
+<a href="https://en.wikipedia.org/wiki/Device_tree">device tree</a> (DT) constraints and
+<code>count</code> represents the number of entries in the array.</p>
+<p>The <code>dev_boot_constraint_add_deferrable_of()</code> helper provides an easy way to add
+one or more deferrable constraints for one or more devices. Just like the
+<code>dev_boot_constraint_add()</code> helper, this must be called before the devices (to
+which we want to add constraints) are probed by their drivers. This adds the
+boot constraints in a deferrable way and the caller need not worry about the
+availability of the resources required by the constraint. This routine returns
+immediately even if resources for some of the constraints weren&#8217;t available
+then.</p>
+<p><code>struct dev_boot_constraint_of</code> represents one or more constraints corresponding
+to one or more devices with the same DT <code>compatible</code> string. The DT <code>compatible</code>
+string allow a device to express its compatibility with a family of similar
+devices, in some cases, allowing a single driver to match against several
+devices regardless of their actual names.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct dev_boot_constraint_of {
+        const char *compat;
+        struct dev_boot_constraint *constraints;
+        unsigned int count;
+
+        const char * const *dev_names;
+        unsigned int dev_names_count;
+};</code></pre>
+</td></tr></table>
+<p>The <code>compat</code> string must match with the DT compatible property of the devices to
+which we want to apply constraints, <code>constraints</code> is an array of one or more
+boot constraints and <code>count</code> is the array size. The constraints will get added
+for every device that matches with the <code>compat</code> string, unless the optional
+<code>dev_names</code> field is set to a non NULL value. The <code>dev_names</code> field is used to
+confine the boot constraints to only a subset of devices that matches the
+<code>compat</code> string; <code>dev_names</code> is an array containing names (e.g.
+<code>"serial@fff02000"</code>) of the DT nodes where the constraints must be applied and
+<code>dev_names_count</code> is the array size.</p>
+<hr>
+<h2><a name="_example"></a>Example</h2>
+<p>Here is an example of how boot constraints are set for multiple devices for a
+platform. A clock constraint is set for the devices with compatible property
+<code>"foo,serial"</code>, but is limited only to a subset of such devices:
+<code>"serial@fff02000"</code> and <code>"serial@fff32000"</code>. A power-supply and PM constraint is
+set for every device whose compatible property matches <code>"foo,display"</code>.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>static struct dev_boot_constraint_clk_info uart_clk_info = {
+        .name = "uartclk",
+};
+
+static struct dev_boot_constraint foo_uart_constraints[] = {
+        {
+                .type = DEV_BOOT_CONSTRAINT_CLK,
+                .data = &amp;uart_clk_info,
+        },
+};
+
+static const char * const uart_subset[] = {
+        "serial@fff02000",      /* UART 3 */
+        "serial@fff32000",      /* UART 6 */
+};
+
+static struct dev_boot_constraint_supply_info vdda_info = {
+        .name = "vdda"
+};
+
+static struct dev_boot_constraint foo_display_constraints[] = {
+        {
+                .type = DEV_BOOT_CONSTRAINT_SUPPLY,
+                .data = &amp;vdda_info,
+        }, {
+                .type = DEV_BOOT_CONSTRAINT_PM,
+                .data = NULL,
+        },
+};
+
+static struct dev_boot_constraint_of foo_constraints[] = {
+        {
+                .compat = "foo,serial",
+                .constraints = foo_uart_constraints,
+                .count = ARRAY_SIZE(foo_uart_constraints),
+
+                .dev_names = uart_subset,
+                .dev_names_count = ARRAY_SIZE(uart_subset),
+        }, {
+                .compat = "foo,display",
+                .constraints = foo_display_constraints,
+                .count = ARRAY_SIZE(foo_display_constraints),
+        },
+};
+
+static int __init foo_constraints_init(void)
+{
+        dev_boot_constraint_add_deferrable_of(foo_constraints, ARRAY_SIZE(foo_constraints));
+
+        return 0;
+}
+subsys_initcall(foo_constraints_init);</code></pre>
+</td></tr></table>
+<p>Few platforms are already updated to use the boot constraint core and its time
+for others to adapt to it to make their code better and fix such complex
+dependencies in a proper way. There is a lot of work on the cards going forward,
+getting rid of relatively slow boot time with deferred constraints, as described
+earlier, is of utmost priority. We may also want to get the constraint specific
+information from the device tree instead and reduce some platform specific code.
+It would also be interesting to use this work for other firmware interfaces like
+ACPI as these are common problems across architectures.</p>
+<p></p>
+<p></p>
+<hr><p><small>
+Last updated
+ 2018-01-10 14:57:25 IST
+</small></p>
+</body>
+</html>

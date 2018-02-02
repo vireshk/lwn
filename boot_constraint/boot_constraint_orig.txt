@@ -1,11 +1,9 @@
 The Boot Constraint Subsystem
 =============================
 
-The
-link:https://lkml.kernel.org/r/cover.1513264961.git.viresh.kumar@linaro.org[fifth
-version] of the patch series adding the Boot constraint subsystem is getting
-reviewed over the Linux kernel mailing list. The purpose of this subsystem is to
-honor the constraints put on the devices by the
+The Linux kernel link:[4.16-rc1] release includes support for the "Boot
+Constraint" subsystem. The purpose of this subsystem is to honor the constraints
+put on the devices by the
 link:https://en.wikipedia.org/wiki/Booting[bootloader] before the devices are
 handed over to the operating system (OS), Linux in our case. In may cases we
 want these devices to continue working as is until the time a Linux driver
@@ -364,11 +362,11 @@ static int __init foo_constraints_init(void)
 subsys_initcall(foo_constraints_init);
 ----
 
-The proposed series updates few platforms to use the boot constraint core and
-its time for others to adapt to it to make their code better and fix such
-complex dependencies in a proper way. There is a lot of work on the cards going
-forward, getting rid of relatively slow boot time with deferred constraints, as
-described earlier, is of utmost priority. We may also want to get the constraint
-specific information from the device tree instead and reduce some platform
-specific code. It would also be interesting to use this work for other firmware
-interfaces like ACPI as these are common problems across architectures.
+Few platforms are already updated to use the boot constraint core and its time
+for others to adapt to it to make their code better and fix such complex
+dependencies in a proper way. There is a lot of work on the cards going forward,
+getting rid of relatively slow boot time with deferred constraints, as described
+earlier, is of utmost priority. We may also want to get the constraint specific
+information from the device tree instead and reduce some platform specific code.
+It would also be interesting to use this work for other firmware interfaces like
+ACPI as these are common problems across architectures.

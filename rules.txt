@@ -1,0 +1,13 @@
+s/Boot Constraint/boot-constraint/
+s/; X/; x/
+s/Linux Kernel/linux-kernel/
+s/platform specific/platform-specific/
+s/drivers core/driver core/
+s/getting/is to be/ (Future tense)
+s/returns 0/returns zero/
+s/performing X() operation/calling X()/
+- Structure internals only after its definition
+s/match with the X string/match the X string/
+s/power-domain/power domain/
+s/getting/being/ (Again tense)
+

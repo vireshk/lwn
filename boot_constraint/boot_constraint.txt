@@ -25,9 +25,7 @@ Interface).
 The bootloaders enable (power ON) and configure lot of devices before passing
 their control to Linux and it is important to hand them over to Linux in a
 glitch-free manner for various reasons, for example to provide a good user
-experience.
-
-A typical example of that can be the display or
+experience. A typical example of that can be the display or
 link:https://en.wikipedia.org/wiki/Liquid-crystal_display[LCD] controller, which
 is used by the bootloaders to show image(s) while the platform boots Linux. The
 LCD controller may be using multiple resources, like clk, regulators, etc, that
@@ -51,9 +49,8 @@ initcall level.
 
 The boot constraint core solves these complex boot order dependencies between
 otherwise unrelated devices by setting the constraints on the shared resources,
-on behalf of the bootloader, before any of these devices are probed.
-
-For example, if the multimedia controller (MMC) and the LCD controller share the
+on behalf of the bootloader, before any of these devices are probed. For
+example, if the multimedia controller (MMC) and the LCD controller share the
 clock and regulator resources and both are enabled by the bootloader, then the
 boot constraint core adds the constraint on those resources before LCD or MMC
 controllers are probed by their kernel device drivers.  The constraints are set
@@ -177,6 +174,15 @@ struct dev_boot_constraint_supply_info {
 };
 ----
 
+
+
+
+
+
+
+
+
+
 The PM boot constraint doesn't need any data and the boot constraint core adds
 the constraint by attaching the power-domain to the device by performing the
 `dev_pm_domain_attach()` operation, which internally enables the power-domain.
@@ -199,6 +205,9 @@ void dev_boot_constraints_remove(struct device *dev);
 
 Here, `dev` is the device for which the boot constraints are getting removed.
 
+
+Deferrable constraints
+-----------------------
 
 There is a limitation with the `dev_boot_constraint_add()` helper though. What
 if the resources, like clk or regulator, required to set the constraint for the

@@ -1,0 +1,60 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="generator" content="AsciiDoc 8.6.9">
+<title>Reducing scheduling latency with SCHED_IDLE policy</title>
+</head>
+<body>
+<h1>Reducing scheduling latency with SCHED_IDLE policy</h1>
+<p>
+</p>
+<a name="preamble"></a>
+<p>The Linux kernel scheduler (or task scheduler) is a complicated beast and a lot
+of effort goes into improving it during every kernel release cycle. The 5.4
+kernel release will enable users to improve scheduling latency of their
+high-priority tasks by using SCHED_IDLE scheduling policy for the low priority
+tasks.</p>
+<p>The scheduler consists of many scheduling classes, an extensible hierarchy of
+scheduling modules and each class may further encapsulate scheduling policies
+which are handled by the scheduler core in a policy independent way.</p>
+<p>The scheduling classes and policies managed by the Linux kernel scheduler are:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>- Stop
+  - No policy
+- Deadline
+  - SCHED_DEADLINE
+- Real-time (RT)
+  - SCHED_FIFO
+  - SCHED_RR
+- Completely fair scheduler (CFS)
+  - SCHED_NORMAL
+  - SCHED_BATCH
+  - SCHED_IDLE
+- Idle
+  - No policy</code></pre>
+</td></tr></table>
+<p>The scheduling classes are mentioned here in decreasing order of their
+priorities; stop class has the highest priority and idle class has the lowest.
+The stop and idle scheduling classes are special.</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>struct sched_class {
+                const struct sched_class *next;
+        void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);
+                void (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
+        struct task_struct * (*pick_next_task) (struct rq *rq, struct task_struct *prev, struct rq_flags *rf);
+                …
+};</code></pre>
+</td></tr></table>
+<div>
+<img src="./scheduling-classes.png" style="border-width: 0;" alt="./scheduling-classes.png" width="800">
+<p><b>Figure 1. </b>Scheduling classes</p>
+</div>
+<p></p>
+<p></p>
+<hr><p><small>
+Last updated
+ 2019-10-22 08:30:12 IST
+</small></p>
+</body>
+</html>

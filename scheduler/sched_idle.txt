@@ -1,0 +1,49 @@
+Reducing scheduling latency with SCHED_IDLE policy
+==================================================
+
+The Linux kernel scheduler (or task scheduler) is a complicated beast and a lot
+of effort goes into improving it during every kernel release cycle. The 5.4
+kernel release will enable users to improve scheduling latency of their
+high-priority tasks by using SCHED_IDLE scheduling policy for the low priority
+tasks.
+
+The scheduler consists of many scheduling classes, an extensible hierarchy of
+scheduling modules and each class may further encapsulate scheduling policies
+which are handled by the scheduler core in a policy independent way.
+
+The scheduling classes are represented by the *struct sched_class*, 
+
+----
+struct sched_class {
+	const struct sched_class *next;
+	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);
+	void (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
+	struct task_struct * (*pick_next_task) (struct rq *rq, struct task_struct *prev, struct rq_flags *rf);
+	...
+};
+----
+
+image::./scheduling-classes.png[title="Scheduling classes",width=800]
+The scheduling classes and policies managed by the Linux kernel scheduler are:
+
+----
+- Stop
+  - No policy
+- Deadline
+  - SCHED_DEADLINE
+- Real-time (RT)
+  - SCHED_FIFO
+  - SCHED_RR
+- Completely fair scheduler (CFS)
+  - SCHED_NORMAL
+  - SCHED_BATCH
+  - SCHED_IDLE
+- Idle
+  - No policy
+----
+
+
+The scheduling classes are mentioned here in decreasing order of their
+priorities; stop class has the highest priority and idle class has the lowest.
+The stop and idle scheduling classes are special.
+

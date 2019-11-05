@@ -4,8 +4,8 @@ Reducing scheduling latency with SCHED_IDLE policy
 The Linux kernel scheduler (or the task scheduler) is a complicated beast and a
 lot of effort goes into improving it during every kernel release cycle. The 5.4
 kernel release will enable users to improve scheduling latency of their
-high-priority tasks by using SCHED_IDLE scheduling policy for the really low
-priority tasks.
+high-priority (interactive) tasks by using SCHED_IDLE scheduling policy for the
+really low priority (background) tasks.
 
 The Linux kernel scheduler consists of many "scheduling classes", an extensible
 hierarchy of scheduling modules, and each class may further encapsulate
@@ -138,10 +138,12 @@ run uninterrupted for a sufficient amount of time and hence they are normally
 scheduled only after finishing the `SCHED_NORMAL` activity. The `SCHED_IDLE`
 policy is designed for the lowest priority tasks in the system and will get a
 chance to run only if there is nothing else to run. The priority of these tasks
-is even lower than the tasks with nice value of +19. This policy isn't widely
-used currently and efforts are being made to improve its support, so people
-start using it in their mainstream solutions; that is the motivation of this
-article as well, we will discuss more on `SCHED_IDLE` in a bit.
+is considered even lower than the tasks with nice value of +19, as the
+`SCHED_IDLE` tasks get preempted immediately even by the `SCHED_NORMAL` task
+with nice value of +19. This policy isn't widely used currently and efforts are
+being made to improve its support, so people start using it in their mainstream
+solutions; that is the motivation of this article as well, we will discuss more
+on `SCHED_IDLE` in a bit.
 
 Last but not the least is the Idle scheduling class (don't confuse it with the
 `SCHED_IDLE` scheduling policy). This is the lowest priority scheduling class
@@ -296,7 +298,7 @@ Kjos from Google earlier said this in reply to the `SCHED_IDLE` work:
 	finding an idle CPU for "top-app" tasks by preempting "background"
 	tasks.
 
-Clearly this work has a lot of potential and finally we should be using the
+Clearly this work has a lot of potential and finally we must be using the
 `SCHED_IDLE` policy in mainstream products. Going forward, we shall revisit
 other places in the scheduler code, like the load-balancer, to see if we can
 further reduce the latency of the non `SCHED_IDLE` tasks.

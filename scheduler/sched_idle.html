@@ -13,8 +13,8 @@
 <p>The Linux kernel scheduler (or the task scheduler) is a complicated beast and a
 lot of effort goes into improving it during every kernel release cycle. The 5.4
 kernel release will enable users to improve scheduling latency of their
-high-priority tasks by using SCHED_IDLE scheduling policy for the really low
-priority tasks.</p>
+high-priority (interactive) tasks by using SCHED_IDLE scheduling policy for the
+really low priority (background) tasks.</p>
 <p>The Linux kernel scheduler consists of many "scheduling classes", an extensible
 hierarchy of scheduling modules, and each class may further encapsulate
 "scheduling policies" which are handled by the scheduler core in a policy
@@ -136,10 +136,12 @@ run uninterrupted for a sufficient amount of time and hence they are normally
 scheduled only after finishing the <code>SCHED_NORMAL</code> activity. The <code>SCHED_IDLE</code>
 policy is designed for the lowest priority tasks in the system and will get a
 chance to run only if there is nothing else to run. The priority of these tasks
-is even lower than the tasks with nice value of +19. This policy isn&#8217;t widely
-used currently and efforts are being made to improve its support, so people
-start using it in their mainstream solutions; that is the motivation of this
-article as well, we will discuss more on <code>SCHED_IDLE</code> in a bit.</p>
+is considered even lower than the tasks with nice value of +19, as the
+<code>SCHED_IDLE</code> tasks get preempted immediately even by the <code>SCHED_NORMAL</code> task
+with nice value of +19. This policy isn&#8217;t widely used currently and efforts are
+being made to improve its support, so people start using it in their mainstream
+solutions; that is the motivation of this article as well, we will discuss more
+on <code>SCHED_IDLE</code> in a bit.</p>
 <p>Last but not the least is the Idle scheduling class (don&#8217;t confuse it with the
 <code>SCHED_IDLE</code> scheduling policy). This is the lowest priority scheduling class
 and similar to the Stop class, this doesn&#8217;t manage any user task and so
@@ -278,7 +280,7 @@ optimized).</code></pre>
 tasks to SCHED_IDLE, so this scheme would increase the probability of
 finding an idle CPU for "top-app" tasks by preempting "background"
 tasks.</code></pre>
-<p>Clearly this work has a lot of potential and finally we should be using the
+<p>Clearly this work has a lot of potential and finally we must be using the
 <code>SCHED_IDLE</code> policy in mainstream products. Going forward, we shall revisit
 other places in the scheduler code, like the load-balancer, to see if we can
 further reduce the latency of the non <code>SCHED_IDLE</code> tasks.</p>
@@ -286,7 +288,7 @@ further reduce the latency of the non <code>SCHED_IDLE</code> tasks.</p>
 <p></p>
 <hr><p><small>
 Last updated
- 2019-10-24 11:59:59 IST
+ 2019-10-25 13:48:02 IST
 </small></p>
 </body>
 </html>

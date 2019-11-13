@@ -1,16 +1,16 @@
-Reducing scheduling latency with SCHED_IDLE policy
-==================================================
+Reducing scheduling latency with the SCHED_IDLE policy
+======================================================
 
 The Linux kernel scheduler (or the task scheduler) is a complicated beast and a
 lot of effort goes into improving it during every kernel release cycle. The 5.4
 kernel release will enable users to improve scheduling latency of their
-high-priority (interactive) tasks by using SCHED_IDLE scheduling policy for the
+high-priority (interactive) tasks by using the SCHED_IDLE scheduling policy for the
 really low priority (background) tasks.
 
 The Linux kernel scheduler consists of many "scheduling classes", an extensible
 hierarchy of scheduling modules, and each class may further encapsulate
-"scheduling policies" which are handled by the scheduler core in a policy
-independent way.
+"scheduling policies" which are handled by the scheduler core in a
+policy-independent way.
 
 The scheduling classes are represented by the `struct sched_class`:
 
@@ -228,9 +228,9 @@ The following json schema was used with the rt-app:
 }
 ----
 
-This schedules eight tasks with `SCHED_OTHER` policy (in the Linux kernel source
+This schedules eight tasks with the `SCHED_OTHER` policy (in the Linux kernel source
 code, the SCHED_OTHER policy is actually named `SCHED_NORMAL`) and five tasks
-with `SCHED_IDLE` policy. The tasks aren't bound to any particular cpu and can
+with the `SCHED_IDLE` policy. The tasks aren't bound to any particular cpu and can
 be queued anywhere by the scheduler. The `SCHED_NORMAL` tasks execute (busy
 loops) for 5333 us for a period of 7777 us and the `SCHED_IDLE` tasks keep on
 running forever if they get scheduled. The idea here was to find if the

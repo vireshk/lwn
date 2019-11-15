@@ -45,61 +45,74 @@ available on SMP systems. The Stop class creates a single per-cpu kernel thread
 is used by the kernel for task migration, CPU hotplug, RCU, ftrace, clockevents,
 etc..
 
-The Deadline scheduling class has the highest-priority user tasks in the system.
-It implements a single scheduling policy, `SCHED_DEADLINE`. This class is used
-for tasks with hard worst-case deadlines, like video encoding and decoding. A
-	request for changing scheduling policy of a task to `SCHED_DEADLINE` can
-	be rejected by the Deadline class if it can't guarantee enough CPU time
-	for a new request, as all the CPU time is blocked for other deadline
-		tasks. The tasks are run on a CPU based on their deadlines,
-		hence a task with the earliest deadline runs first.
+The Deadline scheduling class implements a single scheduling policy,
+`SCHED_DEADLINE`, and it serves the highest-priority user tasks in the system.
+This class is used for tasks with hard deadlines, like video encoding and
+decoding. A task with earliest deadline is served first under this policy. The
+policy of a task can be set to `SCHED_DEADLINE` using the sched_setattr() system
+call by passing three parameters: Runtime, Deadline and Period. The usual
+practice is to set Runtime to something bigger than the average computation time
+of the task (or worst-case execution time for hard real-time tasks), Deadline to
+the relative deadline, and Period to the period of the task. The Runtime should
+always be greater than or equal to the Deadline, which should always be greater
+than or equal to the Runtime. To ensure deadline scheduling guarantees, the
+kernel must prevent situations where the set of SCHED_DEADLINE threads is not
+feasible (schedulable) within the given constraints. The kernel thus performs an
+admittance test when setting or changing SCHED_DEADLINE policy and attributes.
+This admission test calculates whether the change is feasible; if it is not,
+sched_setattr(2) fails with the error EBUSY.
 
 The POSIX Realtime (aka RT) scheduling class comes after Deadline class
 and is used for short latency sensitive tasks, like IRQ threads. This is a
 fixed-priority class and it schedules a higher-priority task before a lower-priority
 task. This implements two scheduling policies, `SCHED_FIFO` and `SCHED_RR`. In
-`SCHED_FIFO` (or first in first out), a tasks runs until it leaves the CPU by
+`SCHED_FIFO` (aka first in first out), a tasks runs until it leaves the CPU by
 itself, either because it is waiting for a resource or it has completed its
-execution. In `SCHED_RR` (or round-robin), a task will run for the maximum
+execution. In `SCHED_RR` (aka round-robin), a task will run for the maximum
 quantum of time (also called as time slice), if the task doesn't block before
 the end of its time slice, the scheduler will put it at the end of the
-round-robin queue of tasks with the same priority and select the next task
-to run. Both the policies are implemented using linked lists here. The
-priorities of the tasks in RT class range from 0 (highest) to 99 (lowest).
+round-robin queue of tasks with the same priority and select the next task to
+run. The `sched_priority` of the tasks under the real-time policies range from 1
+(low) to 99 (high) in userspace.
 
 The CFS scheduling class hosts most of the user tasks and it implements three
-scheduling policies, `SCHED_NORMAL`, `SCHED_BATCH` and `SCHED_IDLE`. A task in
-any of these policies gets a chance to run only if there are no tasks enqueued in
-the Deadline or Realtime runqueues. The policies in CFS are implemented using
-the red-black trees, which use virtual runtime (aka vruntime) to balance
-themselves for this class. Vruntime is the amount of time a task was able
-to run, and a task with the smallest vruntime gets a chance to run next. The
-priority of a task is calculated by adding 120 to its nice value, which ranges
-from -20 to +19. The priority of the task is used to set the weight of the task,
-which in turn affects the vruntime of the task; lower the nice value, higher is
-the priority, higher will be the weight, slower will the vruntime increase and
-more will the task run. The `SCHED_NORMAL` policy (the `SCHED_OTHER` policy is
-named `SCHED_NORMAL`in the Linux kernel source code) is used for most of the
-tasks that run in a Linux environment, like the shell. The `SCHED_BATCH`
-policy is used for batch processing of the non-interactive tasks, where the
-tasks should run uninterrupted for a sufficient amount of time and hence they
-are normally scheduled only after finishing the `SCHED_NORMAL` activity. The
-`SCHED_IDLE` policy is designed for the lowest-priority tasks in the system and
-will get a chance to run only if there is nothing else to run. The priority of
-these tasks is considered even lower than the tasks with nice value of +19, as
-the `SCHED_IDLE` tasks get preempted immediately even by the `SCHED_NORMAL` task
-with nice value of +19. This policy isn't widely used currently and efforts are
-being made to improve its support, so people start using it in their mainstream
-solutions; that is the motivation of this article as well, we will discuss more
-on `SCHED_IDLE` in a bit.
+scheduling policies" `SCHED_NORMAL`, `SCHED_BATCH` and `SCHED_IDLE`. A task in
+any of these policies gets a chance to run only if no other tasks are enqueued
+in the Deadline or Realtime classes (Though in practice, to avoid problems like
+priority inversion, where a low-priority task acquires the resources required by
+a high-priority task, the scheduler guarantees to allocate some of the CPU time
+(default 5%) to run the CFS tasks even when the system is fully loaded with
+Deadline or Realtime tasks). The scheduler tracks the vruntime (aka virtual
+runtime) for all tasks, runnable and blocked. The lower a task's vruntime, the
+more deserving the task is for time on the processor. CFS accordingly moves
+low-vruntime tasks towards the front of the scheduling line.  The
+`sched_priority` for all CFS tasks is set to 0. The priority of a task is
+calculated by adding 120 to its nice value, which ranges from -20 to +19. The
+priority of the task is used to set the weight of the task, which in turn
+affects the vruntime of the task; lower the nice value, higher is the priority,
+higher will be the weight, slower will the vruntime increase and more will the
+task run. The `SCHED_NORMAL` policy (the `SCHED_OTHER` policy is named
+`SCHED_NORMAL`in the Linux kernel source code) is used for most of the tasks
+that run in a Linux environment, like the shell. The `SCHED_BATCH` policy is
+used for batch processing of the non-interactive tasks, where the tasks should
+run uninterrupted for a sufficient amount of time and hence they are normally
+scheduled only after finishing all the `SCHED_NORMAL` activity. The `SCHED_IDLE`
+policy is designed for the lowest-priority tasks in the system and will get a
+chance to run only if there is nothing else to run.  The priority of these tasks
+is considered even lower than the tasks with nice value of +19, as the
+`SCHED_IDLE` tasks get preempted immediately even by the `SCHED_NORMAL` task
+with a nice value of +19. Even in presence of other `SCHED_NORMAL` tasks, a
+`SCHED_IDLE` will get some chance to run (around 1.4% of a task with nice value
+0). This policy isn't widely used currently and efforts are being made to
+improve its support.
 
 Last but not the least is the Idle scheduling class (don't confuse it with the
 `SCHED_IDLE` scheduling policy). This is the lowest-priority scheduling class
 and similar to the Stop class, this doesn't manage any user task and so
-doesn't implement a policy. It only keeps a per-cpu kthread which is named
-`swapper/N`, where N is the CPU number. These kthreads are also called as the
-`idle-threads`. These are responsible for saving power by putting the CPUs in deep
-idle states when there is nothing else to run on them.
+doesn't implement a policy. It only keeps a single per-cpu kthread which is
+named `swapper/N`, where N is the CPU number. These kthreads are also called as
+the `idle-threads`. These are responsible for saving system power by putting the
+CPUs in deep idle states when there is nothing else to do.
 
 
 The scheduling classes are represented by the `struct sched_class`:
@@ -118,43 +131,58 @@ This structure mostly consists of function pointers or callbacks, like
 `enqueue_task()`, `dequeue_task()`, etc., to class specific implementations
 which are called by the scheduler core in a class-independent manner. The
 classes are kept in a singly linked list in descending order of their
-priorities; the HEAD node points to the Stop scheduling class which has the
-highest priority in the scheduler and the last node in the list is the Idle
-class which has the lowest priority.
+priorities; the HEAD node points to the Stop scheduling class (highest priority)
+and the last node in the list is the Idle class (lowest priority).
 
 image::./scheduling-classes.png[title="Scheduling classes managed with singly linked list",width=800]
 
-The Linux kernel calls `schedule()` when it needs to pick a new task for the
-current CPU, which further calls `pick_next_task()` to find the next task that
-should run on this CPU. `pick_next_task()` traverses the list of scheduling
-classes, with the help of the `for_each_class()` macro, to find the
-highest-priority scheduling class that has a task available to run. Once a task
-is found, it is returned to the caller, which will then execute it.
-There should always be a task available to run in the Idle class, which will run
-only if there is nothing else for the scheduler to do and that task is called as
-the idle thread, which puts the CPU(s) in various idle states.
+The Linux kernel calls `schedule()` when it needs to pick a new task to run on
+the local CPU, which further calls `pick_next_task()` to find the next task.
+`pick_next_task()` traverses the list of scheduling classes, with the help of
+the `for_each_class()` macro, to find the highest-priority scheduling class that
+has a task available to run. Once a task is found, it is returned to the caller,
+which then runs it on the local CPU. There should always be a task available to
+run in the Idle class, which will run only if there is nothing else to run.
 
 
 SCHED_IDLE improvements
 -----------------------
 
-When a newly woken up task is available to run, the scheduler core finds a target
-runqueue (i.e. a CPU to run it on) by calling the `.select_task_rq()` callback
-for the respective scheduling class. This returns the CPU number where the task
-should be enqueued. Once the task is enqueued on that CPU by the scheduler core,
-it checks if the newly enqueued task shall preempt the currently running task on
-that CPU by calling the `.check_preempt_curr()` callback of the class.
+The CFS scheduler tries to be fair by giving more time to run to the
+higher-priority tasks as compared to the lower-priority tasks. It normally
+doesn't provide special treatment to the tasks based on their scheduling policy
+and tasks of both `SCHED_NORMAL` and `SCHED_IDLE` policies are managed in the
+same way. They are all kept in the same CFS runqueues, the load and utilization
+of the CPUs change in the same way for all the tasks, the PELT signal and CPU
+frequency changes are impacted similarly by all of them. The only
+differentiating factor is the priority (derived from nice value) of the tasks,
+which affects the weightage of the tasks. The weightage of the task defines how
+much the load and utilization of the CPU will change because of that task. For
+this very reason, we don't see a lot of `SCHED_IDLE` policy specific code in the
+CFS scheduler. As the `SCHED_IDLE` policy tasks have the lowest priority, they
+automatically get scheduled for the least amount of time. Also the fact that
+there aren't many known users of the `SCHED_IDLE` policy in the Linux community,
+no one attempted to improve its support since the time it was first introduced
+in Linux 2.6.23.
 
-For the CFS scheduler, the `SCHED_IDLE` policy was treated specially here in the
-`.check_preempt_curr()` callback, where a currently running `SCHED_IDLE` task
-gets immediately preempted by a `SCHED_NORMAL` or `SCHED_BATCH` task. It makes
-sense to have this behavior as the `SCHED_IDLE` policy has the lowest priority,
-but the problem was that many times the tasks were not getting queued on such
-CPUs (which are queued with only `SCHED_IDLE` tasks) at all because the
-scheduler was not treating such CPUs differently in the `.select_task_rq()`
-callback.
+When a newly woken up task is available to run, the scheduler core finds a
+target runqueue (i.e. a CPU to run it on) by calling the `.select_task_rq()`
+callback of the respective scheduling class. This callback returns the target
+CPU where the task should be enqueued. Once the task is enqueued on the target
+CPU, the scheduler checks if the newly enqueued task shall preempt the currently
+running task on that CPU by calling the `.check_preempt_curr()` callback of the
+class.
 
-The 5.4 kernel release has a
+Until now, the `SCHED_IDLE` policy was getting special treatment only in the
+second callback here, i.e. `.check_preempt_curr()`, where a currently running
+`SCHED_IDLE` task gets immediately preempted by a newly woken up `SCHED_NORMAL`
+task. But this preemption of the `SCHED_IDLE` task will happen only if the newly
+woken up task is enqueued on a CPU that is running `SCHED_IDLE` task currently.
+As there was no special handling of the `SCHED_IDLE` policy in the first
+callback, i.e. `.select_task_rq()`, the newly woken up `SCHED_NORMAL` task
+wasn't getting enqueued on the right CPU (running the `SCHED_IDLE` task).
+
+The 5.4 kernel release contains a
 link:https://lore.kernel.org/lkml/cover.1561523542.git.viresh.kumar@linaro.org/[patchset]
 which makes necessary changes to CFS's `.select_task_rq()` callback, i.e.
 `pick_next_task_fair()`, to allow tasks to get queued more aggressively on such

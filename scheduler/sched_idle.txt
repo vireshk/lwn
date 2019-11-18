@@ -3,12 +3,12 @@ Reducing scheduling latency with the SCHED_IDLE policy
 
 The Linux kernel scheduler (or the task scheduler) is a complicated beast and a
 lot of effort goes into improving it during every kernel release cycle. The 5.4
-kernel release includes few improvements around the existing SCHED_IDLE
+kernel release includes few improvements around the existing `SCHED_IDLE`
 scheduling policy, which can help users to improve the scheduling latency of
-their high-priority (interactive) tasks if they use the SCHED_IDLE policy for
+their high-priority (interactive) tasks if they use the `SCHED_IDLE` policy for
 the really low-priority (background) tasks.
 
-The Linux kernel scheduler consists of many "scheduling classes", an extensible
+The Linux kernel scheduler implements many "scheduling classes", an extensible
 hierarchy of scheduling modules, and each class may further encapsulate
 "scheduling policies" which are handled by the scheduler core in a
 policy-independent way.
@@ -37,23 +37,23 @@ priorities; Stop class has the highest priority, and Idle class has the lowest.
 The Stop scheduling class is a special class which is used for the internal
 working of the kernel. It doesn't implement any scheduling policy and no user
 task ever gets scheduled on it. The Stop class is rather a mechanism to stop
-running everything else and run a specific function on a CPU. As this is the
+running everything else and perform a specific work on a CPU. As this is the
 highest-priority class, it can preempt everything else and nothing ever preempts
-it. Since it is used to stop another CPU to run a specific function, it is only
-available on SMP systems. The Stop class creates a single per-cpu kernel thread
-(or kthread) which is named `migration/N`, where N is the CPU number. This class
-is used by the kernel for task migration, CPU hotplug, RCU, ftrace, clockevents,
-etc..
+it. Since it is used to stop another CPU in order to run a specific function, it
+is only available on SMP systems. The Stop class creates a single per-cpu kernel
+thread (or kthread) which is named `migration/N`, where N is the CPU number.
+This class is used by the kernel for task migration, CPU hotplug, RCU, ftrace,
+clockevents, etc..
 
 The Deadline scheduling class implements a single scheduling policy,
 `SCHED_DEADLINE`, and it serves the highest-priority user tasks in the system.
-This class is used for tasks with hard deadlines, like video encoding and
+This class is used for the tasks with hard deadlines, like video encoding and
 decoding. A task with earliest deadline is served first under this policy. The
 policy of a task can be set to `SCHED_DEADLINE` using the sched_setattr() system
 call by passing three parameters: Runtime, Deadline and Period. The usual
 practice is to set Runtime to something bigger than the average computation time
 of the task (or worst-case execution time for hard real-time tasks), Deadline to
-the relative deadline, and Period to the period of the task. The Runtime should
+the relative deadline, and Period to the period of the task. The Period should
 always be greater than or equal to the Deadline, which should always be greater
 than or equal to the Runtime. To ensure deadline scheduling guarantees, the
 kernel must prevent situations where the set of SCHED_DEADLINE threads is not
@@ -65,9 +65,9 @@ sched_setattr(2) fails with the error EBUSY.
 The POSIX Realtime (aka RT) scheduling class comes after Deadline class
 and is used for short latency sensitive tasks, like IRQ threads. This is a
 fixed-priority class and it schedules a higher-priority task before a lower-priority
-task. This implements two scheduling policies, `SCHED_FIFO` and `SCHED_RR`. In
+task. This implements two scheduling policies: `SCHED_FIFO` and `SCHED_RR`. In
 `SCHED_FIFO` (aka first in first out), a tasks runs until it leaves the CPU by
-itself, either because it is waiting for a resource or it has completed its
+itself, either because it blocks for a resource or it has completed its
 execution. In `SCHED_RR` (aka round-robin), a task will run for the maximum
 quantum of time (also called as time slice), if the task doesn't block before
 the end of its time slice, the scheduler will put it at the end of the
@@ -76,7 +76,7 @@ run. The `sched_priority` of the tasks under the real-time policies range from 1
 (low) to 99 (high) in userspace.
 
 The CFS scheduling class hosts most of the user tasks and it implements three
-scheduling policies" `SCHED_NORMAL`, `SCHED_BATCH` and `SCHED_IDLE`. A task in
+scheduling policies: `SCHED_NORMAL`, `SCHED_BATCH` and `SCHED_IDLE`. A task in
 any of these policies gets a chance to run only if no other tasks are enqueued
 in the Deadline or Realtime classes (Though in practice, to avoid problems like
 priority inversion, where a low-priority task acquires the resources required by
@@ -85,37 +85,39 @@ a high-priority task, the scheduler guarantees to allocate some of the CPU time
 Deadline or Realtime tasks). The scheduler tracks the vruntime (aka virtual
 runtime) for all tasks, runnable and blocked. The lower a task's vruntime, the
 more deserving the task is for time on the processor. CFS accordingly moves
-low-vruntime tasks towards the front of the scheduling line.  The
-`sched_priority` for all CFS tasks is set to 0. The priority of a task is
+low-vruntime tasks towards the front of the scheduling line. The
+`sched_priority` for all the CFS tasks is set to 0. The priority of a task is
 calculated by adding 120 to its nice value, which ranges from -20 to +19. The
 priority of the task is used to set the weight of the task, which in turn
 affects the vruntime of the task; lower the nice value, higher is the priority,
 higher will be the weight, slower will the vruntime increase and more will the
 task run. The `SCHED_NORMAL` policy (the `SCHED_OTHER` policy is named
-`SCHED_NORMAL`in the Linux kernel source code) is used for most of the tasks
+as `SCHED_NORMAL` in the Linux kernel source code) is used for most of the tasks
 that run in a Linux environment, like the shell. The `SCHED_BATCH` policy is
 used for batch processing of the non-interactive tasks, where the tasks should
 run uninterrupted for a sufficient amount of time and hence they are normally
 scheduled only after finishing all the `SCHED_NORMAL` activity. The `SCHED_IDLE`
-policy is designed for the lowest-priority tasks in the system and will get a
-chance to run only if there is nothing else to run.  The priority of these tasks
-is considered even lower than the tasks with nice value of +19, as the
+policy is designed for the lowest-priority tasks in the system and these tasks
+get a chance to run only if there is nothing else to run. Though in practice,
+even in the presence of other `SCHED_NORMAL` tasks, a `SCHED_IDLE` will get some
+time to run (around 1.4% of a task with nice value 0). The priority of these
+tasks is considered even lower than the tasks with nice value of +19, as the
 `SCHED_IDLE` tasks get preempted immediately even by the `SCHED_NORMAL` task
-with a nice value of +19. Even in presence of other `SCHED_NORMAL` tasks, a
-`SCHED_IDLE` will get some chance to run (around 1.4% of a task with nice value
-0). This policy isn't widely used currently and efforts are being made to
-improve its support.
+with a nice value of +19. This policy isn't widely used currently and efforts
+are being made to improve its support.
 
 Last but not the least is the Idle scheduling class (don't confuse it with the
 `SCHED_IDLE` scheduling policy). This is the lowest-priority scheduling class
-and similar to the Stop class, this doesn't manage any user task and so
-doesn't implement a policy. It only keeps a single per-cpu kthread which is
-named `swapper/N`, where N is the CPU number. These kthreads are also called as
-the `idle-threads`. These are responsible for saving system power by putting the
-CPUs in deep idle states when there is nothing else to do.
+and similar to the Stop class, this doesn't manage any user task and so doesn't
+implement a policy. It only keeps a single per-cpu kthread which is named
+`swapper/N`, where N is the CPU number. These kthreads are also called as the
+`idle-threads` and aren't visible to the userspace. These are responsible
+for saving system power by putting the CPUs in deep idle states when there is no
+work to do.
 
 
-The scheduling classes are represented by the `struct sched_class`:
+The scheduling classes are represented by the `struct sched_class` in the kernel
+source code:
 
 ----
 struct sched_class {
@@ -128,11 +130,11 @@ struct sched_class {
 ----
 
 This structure mostly consists of function pointers or callbacks, like
-`enqueue_task()`, `dequeue_task()`, etc., to class specific implementations
+`enqueue_task()`, `dequeue_task()`, etc., to class-specific implementations
 which are called by the scheduler core in a class-independent manner. The
 classes are kept in a singly linked list in descending order of their
 priorities; the HEAD node points to the Stop scheduling class (highest priority)
-and the last node in the list is the Idle class (lowest priority).
+and the last node in the list points to the Idle class (lowest priority).
 
 image::./scheduling-classes.png[title="Scheduling classes managed with singly linked list",width=800]
 
@@ -148,137 +150,129 @@ run in the Idle class, which will run only if there is nothing else to run.
 SCHED_IDLE improvements
 -----------------------
 
-The CFS scheduler tries to be fair by giving more time to run to the
-higher-priority tasks as compared to the lower-priority tasks. It normally
-doesn't provide special treatment to the tasks based on their scheduling policy
-and tasks of both `SCHED_NORMAL` and `SCHED_IDLE` policies are managed in the
-same way. They are all kept in the same CFS runqueues, the load and utilization
-of the CPUs change in the same way for all the tasks, the PELT signal and CPU
-frequency changes are impacted similarly by all of them. The only
-differentiating factor is the priority (derived from nice value) of the tasks,
-which affects the weightage of the tasks. The weightage of the task defines how
-much the load and utilization of the CPU will change because of that task. For
-this very reason, we don't see a lot of `SCHED_IDLE` policy specific code in the
-CFS scheduler. As the `SCHED_IDLE` policy tasks have the lowest priority, they
-automatically get scheduled for the least amount of time. Also the fact that
-there aren't many known users of the `SCHED_IDLE` policy in the Linux community,
-no one attempted to improve its support since the time it was first introduced
-in Linux 2.6.23.
+The CFS scheduler tries to be fair to all the tasks by giving more time to run
+to the higher-priority tasks as compared to the lower-priority tasks. It
+normally doesn't provide special treatment to the tasks based on their
+scheduling policy, for example tasks of both `SCHED_NORMAL` and `SCHED_IDLE`
+policies are managed in the same way. They are all kept in the same CFS
+runqueues, the load and utilization of the CPUs change in the same way for all
+the tasks, the PELT signal and the CPU frequency changes are impacted similarly
+by all the tasks. The only differentiating factor is the priority (derived from
+the nice value) of the tasks, which affects the weight of the tasks. The weight
+of the task defines how the load and utilization of the CPU will change
+because of that task. For this very reason, we don't see a lot of `SCHED_IDLE`
+policy related code in the CFS scheduler. As the `SCHED_IDLE` policy tasks have
+the lowest priority, they automatically get scheduled for the least amount of
+time. Also the fact that there aren't many known users of the `SCHED_IDLE`
+policy in the Linux community, no one attempted to improve its support since the
+time it was first introduced in Linux 2.6.23.
 
-When a newly woken up task is available to run, the scheduler core finds a
+When a newly woken up task is available to run, the scheduler core finds the
 target runqueue (i.e. a CPU to run it on) by calling the `.select_task_rq()`
 callback of the respective scheduling class. This callback returns the target
 CPU where the task should be enqueued. Once the task is enqueued on the target
 CPU, the scheduler checks if the newly enqueued task shall preempt the currently
 running task on that CPU by calling the `.check_preempt_curr()` callback of the
-class.
+respective scheduling class.
 
 Until now, the `SCHED_IDLE` policy was getting special treatment only in the
-second callback here, i.e. `.check_preempt_curr()`, where a currently running
-`SCHED_IDLE` task gets immediately preempted by a newly woken up `SCHED_NORMAL`
-task. But this preemption of the `SCHED_IDLE` task will happen only if the newly
-woken up task is enqueued on a CPU that is running `SCHED_IDLE` task currently.
-As there was no special handling of the `SCHED_IDLE` policy in the first
-callback, i.e. `.select_task_rq()`, the newly woken up `SCHED_NORMAL` task
-wasn't getting enqueued on the right CPU (running the `SCHED_IDLE` task).
+`.check_preempt_curr()` callback, where a currently running `SCHED_IDLE` task
+gets immediately preempted by a newly woken up `SCHED_NORMAL` task. But this
+preemption of the `SCHED_IDLE` task will happen only if the newly woken up task
+is enqueued on a CPU that is running `SCHED_IDLE` task currently.  As there was
+no special handling of the `SCHED_IDLE` policy in the first callback, i.e.
+`.select_task_rq()`, the newly woken up `SCHED_NORMAL` task wasn't getting
+enqueued on the right CPU (running the `SCHED_IDLE` task).
 
-The 5.4 kernel release contains a
+Normally the scheduler tries to spread the tasks on the CPUs by trying to find an
+idle CPU for queuing the newly woken up tasks. The 5.4 kernel release contains a
 link:https://lore.kernel.org/lkml/cover.1561523542.git.viresh.kumar@linaro.org/[patchset]
-which makes necessary changes to CFS's `.select_task_rq()` callback, i.e.
-`pick_next_task_fair()`, to allow tasks to get queued more aggressively on such
-CPUs, i.e. CPUs queued with only `SCHED_IDLE` tasks. Ideally the scheduler tries
-to spread the tasks on CPUs by trying to find an idle CPU for queuing a newly
-woken up task. With the new changes, after checking if a CPU is idle or not, we
-also check if the CPU is queued with `SCHED_IDLE` tasks only or not and queue
-the newly woken up task on that CPU if the CPU is queued with only `SCHED_IDLE`
-tasks. Both fast and slow paths are updated in `pick_next_task_fair()` with this
-change. The scheduler will now prefer to queue the newly woken up tasks on CPUs
-with only `SCHED_IDLE` activity and the newly queued task will immediately
-preempt the currently running `SCHED_IDLE` task on a call to the
-`.check_preempt_curr()` callback. This further reduces the latency to schedule
-the newly queued task as compared to selecting a fully idle CPU, as we don't
-need to bring an idle CPU out of its deep idle state which normally takes a few
-milliseconds to complete (i.e. CPU's exit latency).
+which makes necessary changes to the CFS scheduler's `.select_task_rq()`
+callback to queue tasks more aggressively on the CPUs running only `SCHED_IDLE`
+tasks, even if few of the CPUs are currently idle. There are two separate code
+paths in the `.select_task_rq()` callback of CFS scheduler: slow path and fast path. The
+slow path is mostly executed for newly-forked tasks, where we try to find the
+most optimal CPU to run the task on. On the other hand, the fast path is taken for
+the existing tasks which have become runnable again, and we try to find a target
+CPU (an idle CPU if possible) as soon as possible even if it is not the most
+optimal one. Both these code paths are updated by the new patchset to consider a
+CPU running only `SCHED_IDLE` tasks equivalent to an idle CPU. The scheduler now
+prefers to queue the newly woken up tasks on CPUs with only `SCHED_IDLE`
+activity and the newly queued task will immediately preempt the currently
+running `SCHED_IDLE` task on a call to the `.check_preempt_curr()` callback.
+This reduces the latency to schedule the newly queued task as compared to
+selecting a fully idle CPU, as we don't need to bring an idle CPU out of its
+deep idle state which normally takes a few milliseconds to complete (i.e. CPU's
+exit latency).
 
-The patchset was initially tested on ARM64 octa-core Hikey platform, where all
-CPUs change frequency together, with the help of
-link:https://github.com/scheduler-tools/rt-app[rt-app]; rt-app is a test
-application that starts multiple-periodic threads in order to simulate a
-real-time periodic load. With the rt-app, eight tasks were created with the
-`SCHED_OTHER` policy and five tasks with the `SCHED_IDLE` policy. The tasks
-aren't bound to any particular CPU and can be queued anywhere by the scheduler.
-The `SCHED_NORMAL` tasks execute (busy loops) for 5333 us for a period of 7777
-us and the `SCHED_IDLE` tasks keep on running forever. The idea here was to find
-if the `SCHED_NORMAL` tasks are getting scheduled together (i.e. preempt each
-other) or if they are able to successfully preempt other `SCHED_IDLE` tasks
-after the patchset is applied. The result showed that the average scheduling
-latency (`wu_lat` field in rt-app results) for the `SCHED_NORMAL` tasks reduced
-to 102 us after the patchset was applied, while it was 1116 us with the
-5.3 kernel release; i.e. reduction of around 90% in the scheduling latency of
-the `SCHED_NORMAL` tasks, which looks quite promising.
+This patchset was initially tested with the help of the
+link:https://github.com/scheduler-tools/rt-app[rt-app], on the ARM64 octa-core
+Hikey platform, where all the CPUs change frequency together. The rt-app is a
+test application that starts multiple-periodic threads in order to simulate a
+real-time periodic load. With the rt-app, eight `SCHED_OTHER` tasks and five
+`SCHED_IDLE` tasks were created. The tasks weren't bound to any particular CPU
+and can be queued anywhere by the scheduler. The `SCHED_NORMAL` tasks execute
+(busy loops) for 5333 us out of a period of 7777 us and the `SCHED_IDLE` tasks
+keep on running forever. The idea here was to check if the `SCHED_NORMAL` tasks
+are getting scheduled together (i.e. preempt each other) or if they are able to
+preempt other `SCHED_IDLE` tasks with the patchset applied. The result showed
+that the average scheduling latency (`wu_lat` field in rt-app results) for the
+`SCHED_NORMAL` tasks reduced to 102 us after the patchset was applied, while it
+was 1116 us without the patchset; i.e. a reduction of 90% in the scheduling
+latency of the `SCHED_NORMAL` tasks, which looks quite encouraging.
 
-The same behavior can be observed with the traces captured before (v5.3) and
-after (v5.4-rc1) this patchset was applied. The traces are shown here with the
-help of the KernelShark tool.
+Further testing showed that the average scheduling latency of a `SCHED_NORMAL`
+task, on the above mentioned ARM64 platform is 64 us when it preempts a
+`SCHED_IDLE` task, 177 us when it runs on a shallow-idle (no cluster idle) CPU,
+and 307 us when it runs on a deep-idle (cluster idle) CPU.
 
-image::./v5.3-kshark.png[title="V5.3 kernel, without SCHED_IDLE improvements",width=1200]
+The same behavior can be observed with the kernel function tracer. The traces
+are shown here with help of the KernelShark tool.
+
+image::./v5.3-kshark.png[title="Without SCHED_IDLE improvements",width=1200]
 
 If you look closely at the above figure, you can see that sometimes for long
-duration of time few CPUs were running only a single task (solid single color
-lines) without getting preempted to run another task. The long running tasks are
+duration of time few CPUs were running only a single task (solid single-color
+lines) without getting preempted by another task. The long-running tasks are
 the `SCHED_IDLE` tasks which should ideally get preempted by the `SCHED_NORMAL`
 tasks, but that wasn't happening then.
 
-image::./v5.4-kshark.png[title="V5.4-rc1 kernel, with SCHED_IDLE improvements",width=1200]
+image::./v5.4-kshark.png[title="With SCHED_IDLE improvements",width=1200]
 
 If you look closely at the above figure, you can see that the pattern is quite
-consistent now and it doesn't vary too much. The `SCHED_IDLE` tasks get
-preempted by the `SCHED_NORMAL` tasks as soon as one is available to run, which
-then runs for 5333 us and then gives back the CPU to `SCHED_IDLE` task. This is
-exactly the behavior we were looking for.
+consistent now. The `SCHED_IDLE` tasks get preempted by the `SCHED_NORMAL` tasks
+as soon as one is available to run, which then runs for 5333 us and then gives
+the CPU back to the `SCHED_IDLE` tasks.  This is exactly the behavior we were
+looking for.
 
-Further testing showed that the average scheduling latency of a `SCHED_NORMAL`
-task, on the above mentioned ARM64 platform, is 64 us when it runs on a
-`SCHED_IDLE` CPU, 177 us when it runs on a shallow-idle (no cluster idle) CPU,
-and 307 us when it runs on a deep-idle (cluster idle) CPU.
-
-Recently, Song Liu from Facebook was trying to solve a problem with facebook
-servers, which he
-link:https://lore.kernel.org/lkml/20190408214539.2705660-1-songliubraving@fb.com/[described]
-as:
-
-	Servers running latency sensitive workload usually aren't fully loaded
-	for various reasons including disaster readiness. The machines running
-	our interactive workloads (referred as main workload) have a lot of
-	spare CPU cycles that we would like to use for optimistic side jobs like
-	video encoding. However, our experiments show that the side workload has
-	strong impact on the latency of main workload.
-
-He gave the `SCHED_IDLE` patchset a try and
+Recently, Song Liu from Facebook was trying to solve a
+link:https://lore.kernel.org/lkml/20190408214539.2705660-1-songliubraving@fb.com/[problem]
+with facebook servers. The servers running latency-sensitive workload usually
+weren't fully loaded for various reasons including disaster readiness. The
+machines running Facebook's interactive workloads (referred as main workload)
+have a lot of spare CPU cycles that they would like to use for optimistic side
+jobs like video encoding. However, Song's experiments showed that the side
+workload has strong impact on the latency of main workload. We asked Song to try
+the `SCHED_IDLE` patchset and he
 link:https://lore.kernel.org/lkml/2E7A1CDA-0384-474E-9011-5B209A1A58DF@fb.com/[found]
 out that it solved the problems he was facing to a great extent; though he
 tested an earlier version of the patchset where only the fast path was updated,
 he is yet to test the patchset that got merged.
 
-Another potential user of this work is Google's Android operating system. Todd
-Kjos from Google earlier said this in reply to the `SCHED_IDLE` work:
+Another potential user of this work is the Google's Android operating system.
+Android has knowledge about the importance of a task for the current user's
+experience ranging from "background" (not important) to "top-app" (most
+important). The `SCHED_IDLE` policy can potentially be used for all the background
+tasks as that would increase the probability of finding an idle CPU for top-app
+tasks by preempting the background tasks.
 
-	We haven't had a chance to test this yet, but it is very interesting for
-	Android. Android has knowledge about the importance of a task for the
-	current user's experience ranging from "background" (not important) to
-	"top-app" (most important). Android currently uses EAS+sched-tune where
-	sched-tune provides a mechanism for userspace to give hints to the
-	scheduler (sched-tune is expected to be replaced by the util-clamp
-	patches currently being discussed on the list).  For "top-app" tasks,
-	EAS prefers to wake on idle CPUs (spread policy instead of energy
-	optimized).
-	
-	If we had this SCHED_IDLE patchset, we'd tend to set all "background"
-	tasks to SCHED_IDLE, so this scheme would increase the probability of
-	finding an idle CPU for "top-app" tasks by preempting "background"
-	tasks.
-
-Clearly this work has a lot of potential and finally we must be using the
-`SCHED_IDLE` policy in mainstream products. Going forward, we shall revisit
-other places in the scheduler code, like the load-balancer, to see if we can
-further reduce the latency of the non `SCHED_IDLE` tasks.
+Clearly this work has a lot of potential and the mainstream products should be
+using the `SCHED_IDLE` policy. Though it may require more `SCHED_IDLE` policy
+specific optimizations in the CFS scheduler for that. One such optimization is
+under
+https://lore.kernel.org/lkml/b90cbcce608cef4e02a7bbfe178335f76d201bab.1573728344.git.viresh.kumar@linaro.org/[discussion]
+right now on the kernel mailing list, where we are trying to be more aggressive
+in selecting a `SCHED_IDLE` CPU in both slow and fast paths of the CFS
+scheduler. Also improvements can be made to the CFS load balancer, which doesn't
+give any special treatment to the `SCHED_IDLE` CPUs currently and rather
+attempts to spread the tasks to all the CPUs, that is future work though.

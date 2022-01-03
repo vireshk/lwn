@@ -1,0 +1,31 @@
+Rust based Virtio I2C backend
+=============================
+
+There is a growing trend towards virtualization in areas other than the
+traditional server environment. The server environment is uniform in nature, but
+as we move towards a richer ecosystem in automotive, medical, general mobile and
+the IoT spaces, more device abstractions and way richer organizations are
+needed. link:https://www.linaro.org/projects/#automotive_STR[Linaro's project
+Stratos] is working towards developing hypervisor agnostic abstract devices
+leveraging virtio and extending hypervisor interfaces and standards to allow all
+architectures.
+
+The Virtual Input/Output device (Virtio) standard provides an open interface for
+guest virtual machines (VMs) to access simplified "virtual" devices, such as
+network adapters and block devices, in a paravirtualized environment. Virtio
+provides a straightforward, efficient, standard and extensible mechanism for
+virtual devices, rather than a per-environment or per-OS mechanism.
+
+The back-end (BE) virtio driver, implemented in the hypervisor running on the host,
+exposes the virtio device to the guest OS through a transport method, like PCI
+or MMIO. The virtio device, by design, looks like a physical device to the guest
+OS, which implements a front-end (FE) virtio driver compatible with the virtio
+device exposed by the hypervisor. The virtio device and driver communicate based
+on set of predefined protocols as defined in the
+link:https://github.com/oasis-tcs/virtio-spec[virtio specification], which is
+maintained by link:https://www.oasis-open.org/org/[OASIS]. The FE driver can
+implement zero or more Virtual queues ("virtqueues"), as defined by the virtio
+specification. The virtqueues are the mechanism of bulk data transport between
+FE (guest) and BE (host) drivers. These are normally implemented as standard
+ring buffers in the guest physical memory by the FE drivers. The BE drivers only
+need to parse the virtqueue structures to obtain the requests and process them.

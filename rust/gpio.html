@@ -13,7 +13,7 @@
 <p>There is a growing trend towards virtualization in areas other than the
 traditional server environment. The server environment is uniform in nature, but
 as we move towards a richer ecosystem in automotive, medical, general mobile and
-the IoT spaces, more device abstractions and way richer organizations are
+the IoT spaces, more device abstractions, and way richer organizations are
 needed. <a href="https://www.linaro.org/projects/#automotive_STR">Linaro&#8217;s Project
 Stratos</a> is working towards developing hypervisor agnostic abstract devices
 leveraging virtio and extending hypervisor interfaces and standards to allow all
@@ -42,9 +42,9 @@ independent of where the virtqueue processing happens at the host, in-kernel or
 userspace. The vhost protocol allows the virtio virtqueue processing at the
 host to be offloaded to another element, a user process or a kernel module. The
 vhost protocol when implemented in userspace is called as "vhost-user". Since
-Linaro&#8217;s Project Stratos is targeting hypervisor agnostic BE drivers, we decided
-to work over the existing vhost-user protocol. This article focuses on the Rust
-based vhost-user implementation for I2C devices.</p>
+Linaro&#8217;s Project Stratos is targeting hypervisor agnostic BE drivers, engineers
+at Linaro decided to work over the existing vhost-user protocol. This article
+focuses on the Rust based vhost-user implementation for I2C devices.</p>
 <hr>
 <h2><a name="_virtio_i2c_specification"></a>Virtio I2C Specification</h2>
 <p>The Virtio
@@ -109,7 +109,7 @@ host BE driver to notify the guest with the status of the transfer with
 <a href="https://github.com/oasis-tcs/virtio-spec/blob/master/virtio-i2c.tex">specification</a>
 of more details.</p>
 <hr>
-<h2><a name="_rust_i2c_backend_be"></a>Rust I2C backend (BE)</h2>
+<h2><a name="_rust_based_i2c_backend"></a>Rust based I2C backend</h2>
 <p>Rust is the next big thing disrupting the Linux world and most of us are already
 aware of the <a href="https://github.com/Rust-for-Linux">Rust for Linux</a> project
 slowly making its way into the Linux kernel. Rust is a multi-paradigm,
@@ -133,15 +133,97 @@ and Intel&#8217;s <a href="https://github.com/cloud-hypervisor/cloud-hypervisor"
 Hypervisor</a>. The rust-vmm project currently roughly 30 repositories (or Rust
 crates, equivalent of a C library), where each crate plays a special role in the
 development of a fully functioning VMM.</p>
-<p>One such component is the
+<p>One such component provided by the rust-vmm project is the
 <a href="https://crates.io/crates/vhost-user-backend">vhost-user-backend</a> crate,
 which has recently made its way to <a href="https://crates.io/">crates.io</a>, the Rust
-community’s crate registry. The vhost-user-backend crate provides a framework to implement the vhost-user backend services</p>
+community’s crate registry. The vhost-user-backend crate provides a framework to
+implement the vhost-user backend services. It provides necessary public APIs to
+support vhost-user backends, like a daemon control object (<code>VhostUserDaemon</code>) to
+start and stop the service daemon, a vhost-user backend trait
+(<code>VhostUserBackendMut</code>) to handle vhost-user control messages and virtio
+messages, and a vring access trait (<code>VringT</code>) to access virtio queues.</p>
+<p>A separate Rust workspace,
+<a href="https://github.com/rust-vmm/vhost-device">vhost-device</a>, is recently created
+in the rust-vmm project, to host per-device vhost-user backend crates. The only
+crate merged there as for now is for the I2C device, while there are others
+getting developed and reviewed as we speak, like GPIO, RNG, VSOCK, SCSI, and
+<a href="https://en.wikipedia.org/wiki/Replay_Protected_Memory_Block">RPMB</a>.</p>
+<p>The I2C vhost-device binary-crate (generates an executable upon build),
+developed by Viresh Kumar (Linaro), supports sharing host I2C busses (Adaptors)
+and client devices with multiple guest VMs at the same time with a single
+instance of an always running backend daemon. Once the vhost-device crate is
+compiled with <code>cargo build --release</code>, it generates the
+<code>target/release/vhost-device-i2c</code> executable. The <code>vhost-device-i2c</code> daemon
+communicates with guest VMs over Unix domain sockets, a unique socket for each
+VM.</p>
+<p>The daemon accepts three arguments:</p>
+<ul>
+<li>
+<p>
+-s, --socket-path: Path of the vhost-user Unix domain sockets. This is
+  suffixed with 0,1,2..socket_count-1 by the daemon to obtain actual socket
+  paths.
+</p>
+</li>
+<li>
+<p>
+-c, --socket-count: Number of sockets (guests) to connect to. This parameter
+  is optional and defaults to 1.
+</p>
+</li>
+<li>
+<p>
+-l, --device-list: List of I2C bus and clients in the format
+  &lt;bus&gt;:&lt;client_addr&gt;[:&lt;client_addr&gt;][,&lt;bus&gt;:&lt;client_addr&gt;[:&lt;client_addr&gt;]]
+</p>
+</li>
+</ul>
+<p>As an example, consider the following command:</p>
+<table border="0" bgcolor="#e8e8e8" width="100%" cellpadding="4"><tr><td>
+<pre><code>./vhost-device-i2c -s ~/i2c.sock -c 6 -l 6:32:41,9:37:6</code></pre>
+</td></tr></table>
+<p>This will start the I2C backend daemon, which will create 6 Unix domain sockets
+(<sub>/i2c.sock0, .., </sub>/i2c.sock5), in order to communicate with 6 guest VMs, where
+communication with each VM happens in parallel with the help of a separate
+native OS thread. Once the threads are created by the daemon, the threads wait
+for a VM to start communicating on the thread&#8217;s designated socket. Later, when a
+VM shuts down, the respective thread starts waiting for a new VM to communicate
+on the same socket path. The daemon is also passed a list of host I2C busses and
+client devices, which are shared by all the VMs. The daemon can be modified
+later on, if required, to allow specific devices to be accessed only by a
+particular VM, this feature isn&#8217;t added in the current version of the daemon. In
+the above example, the devices shared by the host with the daemon are: devices
+with address 32 and 41 attached to I2C bus 6, 37 and 6 attached to I2C bus 9.
+The daemon extensively validates the device-list at initialization to avoid any
+failures later.</p>
+<p>The <code>vhost-user-i2c</code> daemon supports both I2C and SMBus protocols, only basic
+SMBus commands up to word-transfer. The backend provides the <code>pub trait
+I2cDevice</code>, a public Rust trait, which can be implemented for different host
+environments to provide access to the underlying I2C busses and devices. This is
+currently implemented only for the Linux userspace, where the I2C busses and
+devices are accessed via the <code>/dev/i2c-X</code> I2C device files. For the above
+example, the backend daemon will look for <code>/dev/i2c-6</code> and <code>/dev/i2c-9</code> device
+files. The users may need to load the <code>i2c-dev</code> kernel module, if not loaded
+already, for these device files to be available under <code>/dev/</code>. For a different
+host environment, like a bare-metal type 1 hypervisor, we need to add another
+implementation of the trait depending on how the I2C busses and devices are
+accessed.</p>
+<p>The <code>vhost-user-i2c</code> backend is truly a hypervisor agnostic solution that works
+with any hypervisor which understands the vhost-user protocol. It has been
+extensively tested with QEMU for example, with Linux userspace environment. Work
+is in progress to make Xen hypervisor vhost-user protocol compatible. Once that
+is done, we will be able to use the same <code>vhost-user-i2c</code> executable with both
+QEMU and Xen, for example, under the same host environments.</p>
+<p>Support for virtio-i2c is already merged in QEMU source, boilerplate stuff to
+create the virtio-i2c device in the guest kernel, and the virtio-i2c device can
+be created in the guest kernel by adding following command line arguments to
+your QEMU command:</p>
+<p><code>-chardev socket,path=~/i2c.sock0,id=vi2c -device vhost-user-i2c-device,chardev=vi2c,id=i2c</code></p>
 <p></p>
 <p></p>
 <hr><p><small>
 Last updated
- 2022-01-04 12:48:12 IST
+ 2022-01-05 12:58:45 IST
 </small></p>
 </body>
 </html>

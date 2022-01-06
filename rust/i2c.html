@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="generator" content="AsciiDoc 9.0.0rc1">
+<title>Rust based vhost-user I2C backend</title>
+<style type="text/css">
+/* Shared CSS for AsciiDoc xhtml11 and html5 backends */
+
+/* Default font. */
+body {
+  font-family: Georgia,serif;
+}
+
+/* Title font. */
+h1, h2, h3, h4, h5, h6,
+div.title, caption.title,
+thead, p.table.header,
+#toctitle,
+#author, #revnumber, #revdate, #revremark,
+#footer {
+  font-family: Arial,Helvetica,sans-serif;
+}
+
+body {
+  margin: 1em 5% 1em 5%;
+}
+
+a {
+  color: blue;
+  text-decoration: underline;
+}
+a:visited {
+  color: fuchsia;
+}
+
+em {
+  font-style: italic;
+  color: navy;
+}
+
+strong {
+  font-weight: bold;
+  color: #083194;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #527bbd;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+
+h1, h2, h3 {
+  border-bottom: 2px solid silver;
+}
+h2 {
+  padding-top: 0.5em;
+}
+h3 {
+  float: left;
+}
+h3 + * {
+  clear: left;
+}
+h5 {
+  font-size: 1.0em;
+}
+
+div.sectionbody {
+  margin-left: 0;
+}
+
+hr {
+  border: 1px solid silver;
+}
+
+p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+ul, ol, li > p {
+  margin-top: 0;
+}
+ul > li     { color: #aaa; }
+ul > li > * { color: black; }
+
+.monospaced, code, pre {
+  font-family: "Courier New", Courier, monospace;
+  font-size: inherit;
+  color: navy;
+  padding: 0;
+  margin: 0;
+}
+pre {
+  white-space: pre-wrap;
+}
+
+#author {
+  color: #527bbd;
+  font-weight: bold;
+  font-size: 1.1em;
+}
+#email {
+}
+#revnumber, #revdate, #revremark {
+}
+
+#footer {
+  font-size: small;
+  border-top: 2px solid silver;
+  padding-top: 0.5em;
+  margin-top: 4.0em;
+}
+#footer-text {
+  float: left;
+  padding-bottom: 0.5em;
+}
+#footer-badges {
+  float: right;
+  padding-bottom: 0.5em;
+}
+
+#preamble {
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+div.imageblock, div.exampleblock, div.verseblock,
+div.quoteblock, div.literalblock, div.listingblock, div.sidebarblock,
+div.admonitionblock {
+  margin-top: 1.0em;
+  margin-bottom: 1.5em;
+}
+div.admonitionblock {
+  margin-top: 2.0em;
+  margin-bottom: 2.0em;
+  margin-right: 10%;
+  color: #606060;
+}
+
+div.content { /* Block element content. */
+  padding: 0;
+}
+
+/* Block element titles. */
+div.title, caption.title {
+  color: #527bbd;
+  font-weight: bold;
+  text-align: left;
+  margin-top: 1.0em;
+  margin-bottom: 0.5em;
+}
+div.title + * {
+  margin-top: 0;
+}
+
+td div.title:first-child {
+  margin-top: 0.0em;
+}
+div.content div.title:first-child {
+  margin-top: 0.0em;
+}
+div.content + div.title {
+  margin-top: 0.0em;
+}
+
+div.sidebarblock > div.content {
+  background: #ffffee;
+  border: 1px solid #dddddd;
+  border-left: 4px solid #f0f0f0;
+  padding: 0.5em;
+}
+
+div.listingblock > div.content {
+  border: 1px solid #dddddd;
+  border-left: 5px solid #f0f0f0;
+  background: #f8f8f8;
+  padding: 0.5em;
+}
+
+div.quoteblock, div.verseblock {
+  padding-left: 1.0em;
+  margin-left: 1.0em;
+  margin-right: 10%;
+  border-left: 5px solid #f0f0f0;
+  color: #888;
+}
+
+div.quoteblock > div.attribution {
+  padding-top: 0.5em;
+  text-align: right;
+}
+
+div.verseblock > pre.content {
+  font-family: inherit;
+  font-size: inherit;
+}
+div.verseblock > div.attribution {
+  padding-top: 0.75em;
+  text-align: left;
+}
+/* DEPRECATED: Pre version 8.2.7 verse style literal block. */
+div.verseblock + div.attribution {
+  text-align: left;
+}
+
+div.admonitionblock .icon {
+  vertical-align: top;
+  font-size: 1.1em;
+  font-weight: bold;
+  text-decoration: underline;
+  color: #527bbd;
+  padding-right: 0.5em;
+}
+div.admonitionblock td.content {
+  padding-left: 0.5em;
+  border-left: 3px solid #dddddd;
+}
+
+div.exampleblock > div.content {
+  border-left: 3px solid #dddddd;
+  padding-left: 0.5em;
+}
+
+div.imageblock div.content { padding-left: 0; }
+span.image img { border-style: none; vertical-align: text-bottom; }
+a.image:visited { color: white; }
+
+dl {
+  margin-top: 0.8em;
+  margin-bottom: 0.8em;
+}
+dt {
+  margin-top: 0.5em;
+  margin-bottom: 0;
+  font-style: normal;
+  color: navy;
+}
+dd > *:first-child {
+  margin-top: 0.1em;
+}
+
+ul, ol {
+    list-style-position: outside;
+}
+ol.arabic {
+  list-style-type: decimal;
+}
+ol.loweralpha {
+  list-style-type: lower-alpha;
+}
+ol.upperalpha {
+  list-style-type: upper-alpha;
+}
+ol.lowerroman {
+  list-style-type: lower-roman;
+}
+ol.upperroman {
+  list-style-type: upper-roman;
+}
+
+div.compact ul, div.compact ol,
+div.compact p, div.compact p,
+div.compact div, div.compact div {
+  margin-top: 0.1em;
+  margin-bottom: 0.1em;
+}
+
+tfoot {
+  font-weight: bold;
+}
+td > div.verse {
+  white-space: pre;
+}
+
+div.hdlist {
+  margin-top: 0.8em;
+  margin-bottom: 0.8em;
+}
+div.hdlist tr {
+  padding-bottom: 15px;
+}
+dt.hdlist1.strong, td.hdlist1.strong {
+  font-weight: bold;
+}
+td.hdlist1 {
+  vertical-align: top;
+  font-style: normal;
+  padding-right: 0.8em;
+  color: navy;
+}
+td.hdlist2 {
+  vertical-align: top;
+}
+div.hdlist.compact tr {
+  margin: 0;
+  padding-bottom: 0;
+}
+
+.comment {
+  background: yellow;
+}
+
+.footnote, .footnoteref {
+  font-size: 0.8em;
+}
+
+span.footnote, span.footnoteref {
+  vertical-align: super;
+}
+
+#footnotes {
+  margin: 20px 0 20px 0;
+  padding: 7px 0 0 0;
+}
+
+#footnotes div.footnote {
+  margin: 0 0 5px 0;
+}
+
+#footnotes hr {
+  border: none;
+  border-top: 1px solid silver;
+  height: 1px;
+  text-align: left;
+  margin-left: 0;
+  width: 20%;
+  min-width: 100px;
+}
+
+div.colist td {
+  padding-right: 0.5em;
+  padding-bottom: 0.3em;
+  vertical-align: top;
+}
+div.colist td img {
+  margin-top: 0.3em;
+}
+
+@media print {
+  #footer-badges { display: none; }
+}
+
+#toc {
+  margin-bottom: 2.5em;
+}
+
+#toctitle {
+  color: #527bbd;
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-top: 1.0em;
+  margin-bottom: 0.1em;
+}
+
+div.toclevel0, div.toclevel1, div.toclevel2, div.toclevel3, div.toclevel4 {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+div.toclevel2 {
+  margin-left: 2em;
+  font-size: 0.9em;
+}
+div.toclevel3 {
+  margin-left: 4em;
+  font-size: 0.9em;
+}
+div.toclevel4 {
+  margin-left: 6em;
+  font-size: 0.9em;
+}
+
+span.aqua { color: aqua; }
+span.black { color: black; }
+span.blue { color: blue; }
+span.fuchsia { color: fuchsia; }
+span.gray { color: gray; }
+span.green { color: green; }
+span.lime { color: lime; }
+span.maroon { color: maroon; }
+span.navy { color: navy; }
+span.olive { color: olive; }
+span.purple { color: purple; }
+span.red { color: red; }
+span.silver { color: silver; }
+span.teal { color: teal; }
+span.white { color: white; }
+span.yellow { color: yellow; }
+
+span.aqua-background { background: aqua; }
+span.black-background { background: black; }
+span.blue-background { background: blue; }
+span.fuchsia-background { background: fuchsia; }
+span.gray-background { background: gray; }
+span.green-background { background: green; }
+span.lime-background { background: lime; }
+span.maroon-background { background: maroon; }
+span.navy-background { background: navy; }
+span.olive-background { background: olive; }
+span.purple-background { background: purple; }
+span.red-background { background: red; }
+span.silver-background { background: silver; }
+span.teal-background { background: teal; }
+span.white-background { background: white; }
+span.yellow-background { background: yellow; }
+
+span.big { font-size: 2em; }
+span.small { font-size: 0.6em; }
+
+span.underline { text-decoration: underline; }
+span.overline { text-decoration: overline; }
+span.line-through { text-decoration: line-through; }
+
+div.unbreakable { page-break-inside: avoid; }
+
+
+/*
+ * xhtml11 specific
+ *
+ * */
+
+div.tableblock {
+  margin-top: 1.0em;
+  margin-bottom: 1.5em;
+}
+div.tableblock > table {
+  border: 3px solid #527bbd;
+}
+thead, p.table.header {
+  font-weight: bold;
+  color: #527bbd;
+}
+p.table {
+  margin-top: 0;
+}
+/* Because the table frame attribute is overridden by CSS in most browsers. */
+div.tableblock > table[frame="void"] {
+  border-style: none;
+}
+div.tableblock > table[frame="hsides"] {
+  border-left-style: none;
+  border-right-style: none;
+}
+div.tableblock > table[frame="vsides"] {
+  border-top-style: none;
+  border-bottom-style: none;
+}
+
+
+/*
+ * html5 specific
+ *
+ * */
+
+table.tableblock {
+  margin-top: 1.0em;
+  margin-bottom: 1.5em;
+}
+thead, p.tableblock.header {
+  font-weight: bold;
+  color: #527bbd;
+}
+p.tableblock {
+  margin-top: 0;
+}
+table.tableblock {
+  border-width: 3px;
+  border-spacing: 0px;
+  border-style: solid;
+  border-color: #527bbd;
+  border-collapse: collapse;
+}
+th.tableblock, td.tableblock {
+  border-width: 1px;
+  padding: 4px;
+  border-style: solid;
+  border-color: #527bbd;
+}
+
+table.tableblock.frame-topbot {
+  border-left-style: hidden;
+  border-right-style: hidden;
+}
+table.tableblock.frame-sides {
+  border-top-style: hidden;
+  border-bottom-style: hidden;
+}
+table.tableblock.frame-none {
+  border-style: hidden;
+}
+
+th.tableblock.halign-left, td.tableblock.halign-left {
+  text-align: left;
+}
+th.tableblock.halign-center, td.tableblock.halign-center {
+  text-align: center;
+}
+th.tableblock.halign-right, td.tableblock.halign-right {
+  text-align: right;
+}
+
+th.tableblock.valign-top, td.tableblock.valign-top {
+  vertical-align: top;
+}
+th.tableblock.valign-middle, td.tableblock.valign-middle {
+  vertical-align: middle;
+}
+th.tableblock.valign-bottom, td.tableblock.valign-bottom {
+  vertical-align: bottom;
+}
+
+
+/*
+ * manpage specific
+ *
+ * */
+
+body.manpage h1 {
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+  border-top: 2px solid silver;
+  border-bottom: 2px solid silver;
+}
+body.manpage h2 {
+  border-style: none;
+}
+body.manpage div.sectionbody {
+  margin-left: 3em;
+}
+
+@media print {
+  body.manpage div#toc { display: none; }
+}
+
+
+</style>
+<script type="text/javascript">
+/*<![CDATA[*/
+var asciidoc = {  // Namespace.
+
+/////////////////////////////////////////////////////////////////////
+// Table Of Contents generator
+/////////////////////////////////////////////////////////////////////
+
+/* Author: Mihai Bazon, September 2002
+ * http://students.infoiasi.ro/~mishoo
+ *
+ * Table Of Content generator
+ * Version: 0.4
+ *
+ * Feel free to use this script under the terms of the GNU General Public
+ * License, as long as you do not remove or alter this notice.
+ */
+
+ /* modified by Troy D. Hanson, September 2006. License: GPL */
+ /* modified by Stuart Rackham, 2006, 2009. License: GPL */
+
+// toclevels = 1..4.
+toc: function (toclevels) {
+
+  function getText(el) {
+    var text = "";
+    for (var i = el.firstChild; i != null; i = i.nextSibling) {
+      if (i.nodeType == 3 /* Node.TEXT_NODE */) // IE doesn't speak constants.
+        text += i.data;
+      else if (i.firstChild != null)
+        text += getText(i);
+    }
+    return text;
+  }
+
+  function TocEntry(el, text, toclevel) {
+    this.element = el;
+    this.text = text;
+    this.toclevel = toclevel;
+  }
+
+  function tocEntries(el, toclevels) {
+    var result = new Array;
+    var re = new RegExp('[hH]([1-'+(toclevels+1)+'])');
+    // Function that scans the DOM tree for header elements (the DOM2
+    // nodeIterator API would be a better technique but not supported by all
+    // browsers).
+    var iterate = function (el) {
+      for (var i = el.firstChild; i != null; i = i.nextSibling) {
+        if (i.nodeType == 1 /* Node.ELEMENT_NODE */) {
+          var mo = re.exec(i.tagName);
+          if (mo && (i.getAttribute("class") || i.getAttribute("className")) != "float") {
+            result[result.length] = new TocEntry(i, getText(i), mo[1]-1);
+          }
+          iterate(i);
+        }
+      }
+    }
+    iterate(el);
+    return result;
+  }
+
+  var toc = document.getElementById("toc");
+  if (!toc) {
+    return;
+  }
+
+  // Delete existing TOC entries in case we're reloading the TOC.
+  var tocEntriesToRemove = [];
+  var i;
+  for (i = 0; i < toc.childNodes.length; i++) {
+    var entry = toc.childNodes[i];
+    if (entry.nodeName.toLowerCase() == 'div'
+     && entry.getAttribute("class")
+     && entry.getAttribute("class").match(/^toclevel/))
+      tocEntriesToRemove.push(entry);
+  }
+  for (i = 0; i < tocEntriesToRemove.length; i++) {
+    toc.removeChild(tocEntriesToRemove[i]);
+  }
+
+  // Rebuild TOC entries.
+  var entries = tocEntries(document.getElementById("content"), toclevels);
+  for (var i = 0; i < entries.length; ++i) {
+    var entry = entries[i];
+    if (entry.element.id == "")
+      entry.element.id = "_toc_" + i;
+    var a = document.createElement("a");
+    a.href = "#" + entry.element.id;
+    a.appendChild(document.createTextNode(entry.text));
+    var div = document.createElement("div");
+    div.appendChild(a);
+    div.className = "toclevel" + entry.toclevel;
+    toc.appendChild(div);
+  }
+  if (entries.length == 0)
+    toc.parentNode.removeChild(toc);
+},
+
+
+/////////////////////////////////////////////////////////////////////
+// Footnotes generator
+/////////////////////////////////////////////////////////////////////
+
+/* Based on footnote generation code from:
+ * http://www.brandspankingnew.net/archive/2005/07/format_footnote.html
+ */
+
+footnotes: function () {
+  // Delete existing footnote entries in case we're reloading the footnodes.
+  var i;
+  var noteholder = document.getElementById("footnotes");
+  if (!noteholder) {
+    return;
+  }
+  var entriesToRemove = [];
+  for (i = 0; i < noteholder.childNodes.length; i++) {
+    var entry = noteholder.childNodes[i];
+    if (entry.nodeName.toLowerCase() == 'div' && entry.getAttribute("class") == "footnote")
+      entriesToRemove.push(entry);
+  }
+  for (i = 0; i < entriesToRemove.length; i++) {
+    noteholder.removeChild(entriesToRemove[i]);
+  }
+
+  // Rebuild footnote entries.
+  var cont = document.getElementById("content");
+  var spans = cont.getElementsByTagName("span");
+  var refs = {};
+  var n = 0;
+  for (i=0; i<spans.length; i++) {
+    if (spans[i].className == "footnote") {
+      n++;
+      var note = spans[i].getAttribute("data-note");
+      if (!note) {
+        // Use [\s\S] in place of . so multi-line matches work.
+        // Because JavaScript has no s (dotall) regex flag.
+        note = spans[i].innerHTML.match(/\s*\[([\s\S]*)]\s*/)[1];
+        spans[i].innerHTML =
+          "[<a id='_footnoteref_" + n + "' href='#_footnote_" + n +
+          "' title='View footnote' class='footnote'>" + n + "</a>]";
+        spans[i].setAttribute("data-note", note);
+      }
+      noteholder.innerHTML +=
+        "<div class='footnote' id='_footnote_" + n + "'>" +
+        "<a href='#_footnoteref_" + n + "' title='Return to text'>" +
+        n + "</a>. " + note + "</div>";
+      var id =spans[i].getAttribute("id");
+      if (id != null) refs["#"+id] = n;
+    }
+  }
+  if (n == 0)
+    noteholder.parentNode.removeChild(noteholder);
+  else {
+    // Process footnoterefs.
+    for (i=0; i<spans.length; i++) {
+      if (spans[i].className == "footnoteref") {
+        var href = spans[i].getElementsByTagName("a")[0].getAttribute("href");
+        href = href.match(/#.*/)[0];  // Because IE return full URL.
+        n = refs[href];
+        spans[i].innerHTML =
+          "[<a href='#_footnote_" + n +
+          "' title='View footnote' class='footnote'>" + n + "</a>]";
+      }
+    }
+  }
+},
+
+install: function(toclevels) {
+  var timerId;
+
+  function reinstall() {
+    asciidoc.footnotes();
+    if (toclevels) {
+      asciidoc.toc(toclevels);
+    }
+  }
+
+  function reinstallAndRemoveTimer() {
+    clearInterval(timerId);
+    reinstall();
+  }
+
+  timerId = setInterval(reinstall, 500);
+  if (document.addEventListener)
+    document.addEventListener("DOMContentLoaded", reinstallAndRemoveTimer, false);
+  else
+    window.onload = reinstallAndRemoveTimer;
+}
+
+}
+asciidoc.install();
+/*]]>*/
+</script>
+</head>
+<body class="article" style="max-width:60em">
+<div id="header">
+<h1>Rust based vhost-user I2C backend</h1>
+</div>
+<div id="content">
+<div id="preamble">
+<div class="sectionbody">
+<div class="paragraph"><p>There is a growing trend towards virtualization in areas other than the
+traditional server environment. The server environment is uniform in nature, but
+as we move towards a richer ecosystem in automotive, medical, general mobile,
+and the IoT spaces, more device abstractions, and way richer organizations are
+needed. Linaro&#8217;s <a href="https://www.linaro.org/projects/#automotive_STR">Project
+Stratos</a> is working towards developing hypervisor agnostic abstract devices
+leveraging virtio and extending hypervisor interfaces and standards to allow all
+architectures.</p></div>
+<div class="paragraph"><p>The Virtual Input/Output device (Virtio) standard provides an open interface for
+guest <a href="https://en.wikipedia.org/wiki/Virtual_machine">virtual machines</a> (VMs)
+to access simplified "virtual" devices, such as network adapters and block
+devices, in a paravirtualized environment. Virtio provides a straightforward,
+efficient, standard, and extensible mechanism for virtual devices, rather than a
+per-environment or per-OS mechanism.</p></div>
+<div class="paragraph"><p>Virtio adopts a frontend-backend architecture that enables a simple but flexible
+framework. The backend (BE) virtio driver, implemented by the hypervisor running
+on the host, exposes the virtio device to the guest OS through a standard
+transport method, like
+<a href="https://en.wikipedia.org/wiki/Peripheral_Component_Interconnect">PCI</a> or
+<a href="https://en.wikipedia.org/wiki/Memory-mapped_I/O">MMIO</a>. This virtio device,
+by design, looks like a physical device to the guest OS, which implements a
+frontend (FE) virtio driver compatible with the virtio device exposed by the
+hypervisor. The virtio device and driver communicate based on a set of
+predefined protocols as defined by the
+<a href="https://github.com/oasis-tcs/virtio-spec">virtio specification</a>, which is
+maintained by <a href="https://www.oasis-open.org/org/">OASIS</a>. The FE driver may
+implement zero or more Virtual queues (virtqueues), as defined by the virtio
+specification. The virtqueues are the mechanism of bulk data transport between
+FE (guest) and BE (host) drivers. These are normally implemented as standard
+ring buffers in the guest physical memory space. The BE drivers parse the
+virtqueues to obtain the request descriptors, process them and queue the
+response descriptors back to the virtqueue.</p></div>
+<div class="paragraph"><p>The FE virtio driver, at the guest, and the virtio specification are normally
+independent of where the virtqueue processing happens at the host, in-kernel or
+userspace. The virtio vhost protocol allows the virtio virtqueue processing at
+the host to be offloaded to another element, a user process or a kernel module.
+The vhost protocol, when implemented in userspace is called as "vhost-user".
+Since Linaro&#8217;s Project Stratos is targeting hypervisor agnostic BE solutions,
+engineers at Linaro decided to work over the existing vhost-user protocol. This
+article focuses on the Rust based vhost-user implementation for the
+<a href="https://en.wikipedia.org/wiki/I%C2%B2C">I2C</a> (or Inter-Integrated Circuit)
+devices.</p></div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_virtio_i2c_specification">Virtio I2C Specification</h2>
+<div class="sectionbody">
+<div class="paragraph"><p>The Virtio
+<a href="https://github.com/oasis-tcs/virtio-spec/blob/master/virtio-i2c.tex">specification</a>
+for I2C and the Linux
+<a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/i2c/busses/i2c-virtio.c">i2c-virtio</a>
+driver are upstreamed by Jie Deng (Intel), who tested his work with the
+<a href="https://projectacrn.org">ACRN</a> hypervisor designed for IoT development. Both
+specification and driver received updates later on by Viresh Kumar (Linaro), to
+improve buffer management and allow zero-length transactions. Lets briefly go
+through the virtio I2C specification.</p></div>
+<div class="paragraph"><p><span class="monospaced">virtio-i2c</span> is a virtual I2C adapter device, which provides a way to flexibly
+organize and use the host I2C controlled devices from the guest. All
+communication between the FE and BE drivers happens over the <span class="monospaced">requestq</span>
+virtqueue. The I2C requests always originate at the guest FE driver, where the
+FE driver puts one or more I2C requests, represented by the <span class="monospaced">struct
+virtio_i2c_req</span>, on the <span class="monospaced">requestq</span> virtqueue. The I2C requests may or may not be
+be interdependent. If multiple requests are received together, then the host BE
+driver must process the requests in the order they are received on the
+virtqueue.</p></div>
+<div class="listingblock">
+<div class="content monospaced">
+<pre>struct virtio_i2c_req {
+        struct virtio_i2c_out_hdr out_hdr;
+        u8 buf[];
+        struct virtio_i2c_in_hdr in_hdr;
+};</pre>
+</div></div>
+<div class="paragraph"><p>Each I2C virtio request consists of an <span class="monospaced">out_hdr</span>, followed by an optional data
+buffer of some length, followed by an <span class="monospaced">in_hdr</span>. The buffer is not sent for the
+zero-length requests, like for the SMBus <span class="monospaced">QUICK</span> command where no data is
+required to be sent or received.</p></div>
+<div class="listingblock">
+<div class="content monospaced">
+<pre>struct virtio_i2c_out_hdr {
+        le16 addr;
+        le16 padding;
+        le32 flags;
+};</pre>
+</div></div>
+<div class="paragraph"><p>The <span class="monospaced">out_hdr</span> is represented by the <span class="monospaced">struct virtio_i2c_out_hdr</span> and is always
+set by the FE driver. The <span class="monospaced">addr</span> field of the header is set with the address of
+the I2C controlled device. Both 7-bit and 10-bit address modes are supported by
+the specification, though only 7-bit mode is supported by the current
+implementation of the Linux FE driver. The <span class="monospaced">flags</span> field is used to show
+dependency between multiple requests, by setting <span class="monospaced">VIRTIO_I2C_FLAGS_FAIL_NEXT</span>
+(0b01), or to mark a request <span class="monospaced">READ</span> or <span class="monospaced">WRITE</span>, by setting
+<span class="monospaced">VIRTIO_I2C_FLAGS_M_RD</span> (0b10) for <span class="monospaced">READ</span> operation.</p></div>
+<div class="paragraph"><p>As described earlier, <span class="monospaced">buf</span> is optional. The virtio specification for I2C
+defines a feature for zero-length transfers, <span class="monospaced">VIRTIO_I2C_F_ZERO_LENGTH_REQUEST</span>
+(0b01). It is mandatory for both FE and BE drivers to implement this feature,
+which allows zero-length transfers (like SMBus <span class="monospaced">QUICK</span> command) to take place.</p></div>
+<div class="paragraph"><p>For <span class="monospaced">WRITE</span> transactions, the buffer is set by the FE driver and read by the BE
+driver. For <span class="monospaced">READ</span> transactions, it is set by the BE driver and read by the FE
+driver after the response is received. The amount of the data to transfer is
+inferred by the size of the buffer descriptor.</p></div>
+<div class="listingblock">
+<div class="content monospaced">
+<pre>struct virtio_i2c_in_hdr {
+        u8 status;
+};</pre>
+</div></div>
+<div class="paragraph"><p>The <span class="monospaced">in_hdr</span> is represented by the <span class="monospaced">struct virtio_i2c_in_hdr</span> and is used by the
+host BE driver to notify the guest with the status of the transfer with
+<span class="monospaced">VIRTIO_I2C_MSG_OK</span> (0) or <span class="monospaced">VIRTIO_I2C_MSG_ERR</span> (1).</p></div>
+<div class="paragraph"><p>Please refer the Virtio I2C
+<a href="https://github.com/oasis-tcs/virtio-spec/blob/master/virtio-i2c.tex">specification</a>
+of more details.</p></div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_rust_based_i2c_backend">Rust based I2C backend</h2>
+<div class="sectionbody">
+<div class="paragraph"><p>Rust is the next big thing disrupting the Linux world. Most of us are already
+aware of the <a href="https://github.com/Rust-for-Linux">Rust for Linux</a> project
+slowly making its way into the Linux kernel. Rust is a multi-paradigm,
+general-purpose programming language designed for performance and safety. It
+brings a lot of benefits to the table, especially
+<a href="https://en.wikipedia.org/wiki/Memory_safety">memory-safety</a> and safe
+<a href="https://en.wikipedia.org/wiki/Concurrency_(computer_science)">concurrency</a>.</p></div>
+<div class="paragraph"><p>The <a href="https://github.com/rust-vmm">rust-vmm</a> project, an open-source
+initiative, was started back in late 2018, with the aim to share virtualization
+packages. The rust-vmm project lets one build custom
+<a href="https://en.wikipedia.org/wiki/Hypervisor">Virtual Machine Monitors (VMMs)
+and hypervisors</a>. This empowers other projects to quickly develop virtualization
+solutions, by reusing the components provided by rust-vmm, and better focus on
+key differentiators of their products. The rust-vmm project is organized as a
+shared ownership project, that so far includes contributions from Alibaba, AWS,
+Cloud Base, Google, Intel, Linaro, Red Hat and other individual contributors.
+The components provided by rust-vmm are already used by several projects, like
+Amazon&#8217;s <a href="https://github.com/firecracker-microvm/firecracker">Firecracker</a>
+and Intel&#8217;s <a href="https://github.com/cloud-hypervisor/cloud-hypervisor">Cloud
+Hypervisor</a>. The rust-vmm project currently hosts ~30 repositories (or Rust
+crates, equivalent of a C library), where each crate plays a specialized role in
+the development of a fully functioning VMM.</p></div>
+<div class="paragraph"><p>One such component provided by the rust-vmm project is the
+<a href="https://crates.io/crates/vhost-user-backend">vhost-user-backend</a> crate,
+which has recently made its way to <a href="https://crates.io/">crates.io</a>, the Rust
+community’s crate registry. The vhost-user-backend crate provides a framework to
+implement the vhost-user backend services. It provides necessary public APIs to
+support vhost-user backends, like a daemon control object (<span class="monospaced">VhostUserDaemon</span>) to
+start and stop the service daemon, a vhost-user backend trait
+(<span class="monospaced">VhostUserBackendMut</span>) to handle vhost-user control messages and virtio
+messages, and a vring access trait (<span class="monospaced">VringT</span>) to access virtio queues. A Rust
+trait tells the Rust compiler about functionality a particular type has and can
+share with other types.</p></div>
+<div class="paragraph"><p>A separate Rust workspace,
+<a href="https://github.com/rust-vmm/vhost-device">vhost-device</a>, is recently created
+in the rust-vmm project, to host per-device vhost-user backend crates. The only
+crate merged there as for now is the I2C device crate, while there are others
+getting developed and reviewed as we speak, like GPIO, RNG, VSOCK, SCSI, and
+<a href="https://en.wikipedia.org/wiki/Replay_Protected_Memory_Block">RPMB</a>.</p></div>
+<div class="paragraph"><p>The I2C vhost-device binary-crate (generates an executable upon build),
+developed by Viresh Kumar (Linaro), supports sharing host I2C busses (Adaptors)
+and client devices with multiple guest VMs at the same time with a single
+instance of the backend daemon. Once the vhost-device crate is compiled with
+<span class="monospaced">cargo build --release</span> command, it generates the
+<span class="monospaced">target/release/vhost-device-i2c</span> executable. The <span class="monospaced">vhost-device-i2c</span> daemon
+communicates with guest VMs over Unix domain sockets, a unique socket for each
+VM.</p></div>
+<div class="paragraph"><p>The daemon accepts these arguments:</p></div>
+<div class="ulist"><ul>
+<li>
+<p>
+-s, --socket-path: Path of the vhost-user Unix domain sockets. This is
+  suffixed with 0,1,2..socket_count-1 by the daemon to obtain actual socket
+  paths.
+</p>
+</li>
+<li>
+<p>
+-c, --socket-count: Number of sockets (guests) to connect to. This parameter
+  is optional and defaults to 1.
+</p>
+</li>
+<li>
+<p>
+-l, --device-list: List of I2C busses and clients in the format
+  &lt;bus&gt;:&lt;client_addr&gt;[:&lt;client_addr&gt;][,&lt;bus&gt;:&lt;client_addr&gt;[:&lt;client_addr&gt;]]
+</p>
+</li>
+</ul></div>
+<div class="paragraph"><p>As an example, consider the following command:</p></div>
+<div class="listingblock">
+<div class="content monospaced">
+<pre>./vhost-device-i2c -s ~/i2c.sock -c 6 -l 6:32:41,9:37:6</pre>
+</div></div>
+<div class="paragraph"><p>This will start the I2C backend daemon, which will create 6 Unix domain sockets
+(<span class="monospaced">~/i2c.sock0</span>, .. <span class="monospaced">~/i2c.sock5</span>), in order to communicate with 6 guest VMs,
+where communication with each VM happens in parallel with the help of a separate
+native OS thread. Each thread, once created by the daemon, will wait for a VM to
+start communicating over the thread&#8217;s designated socket. Once a VM is found for
+the thread, the thread registers a <span class="monospaced">vhost-user-backend</span> instance and starts
+processing the requests on the <span class="monospaced">requestq</span> virtqueue. At a later point of time,
+once the VM shuts down, the respective thread starts waiting for a new VM to
+communicate on the same socket path. In the above example, the daemon is also
+passed a list of host I2C busses and client devices, which are shared among the
+VMs. This is how sharing is defined in the daemon&#8217;s implementation for now,
+though it can be modified later on, if required, to allow specific devices
+to be accessed only by a particular VM. In the above example, the devices
+provided by the host to the daemon are: devices with address 32 and 41 attached
+to I2C bus 6, and 37 and 6 attached to I2C bus 9. The daemon extensively
+validates the device-list at initialization to avoid any failures later,
+especially for duplicate entries.</p></div>
+<div class="paragraph"><p>The <span class="monospaced">vhost-user-i2c</span> daemon supports both I2C and SMBus protocols, only basic
+SMBus commands up to word-transfer though. The backend provides the <span class="monospaced">pub trait
+I2cDevice</span>, a public Rust trait, which can be implemented for different host
+environments to provide access to the underlying I2C busses and devices. This is
+currently implemented only for the Linux userspace, where the I2C busses and
+devices are accessed via the <span class="monospaced">/dev/i2c-X</span> device files. For the above example,
+the backend daemon will look for <span class="monospaced">/dev/i2c-6</span> and <span class="monospaced">/dev/i2c-9</span> device files. The
+users may need to load the standard <span class="monospaced">i2c-dev</span> kernel module on the host machine,
+if not loaded already, for these device files to be available under <span class="monospaced">/dev/</span>. For
+a different host environment, like with a bare-metal type 1 hypervisor, we need
+to add another implementation of the trait depending on how the I2C busses and
+devices are accessed.</p></div>
+<div class="paragraph"><p>The <span class="monospaced">vhost-user-i2c</span> backend is truly a hypervisor agnostic solution that works
+with any hypervisor which understands the vhost-user protocol. It has been
+extensively tested with QEMU for example, with Linux userspace environment. Work
+is in progress to make Xen hypervisor vhost-user protocol compatible. Once that
+is done, we will be able to use the same <span class="monospaced">vhost-user-i2c</span> executable with both
+QEMU and Xen, for example, under the same host environment.</p></div>
+<div class="paragraph"><p>Support for i2c-virtio is already merged in QEMU source, boilerplate stuff to
+create the i2c-virtio device in the guest kernel, and the i2c-virtio device can
+be created in the guest kernel by adding following command line arguments to
+your QEMU command:</p></div>
+<div class="listingblock">
+<div class="content monospaced">
+<pre>-chardev socket,path=~/i2c.sock0,id=vi2c -device vhost-user-i2c-device,chardev=vi2c,id=i2c</pre>
+</div></div>
+<div class="paragraph"><p>We have come a long way forward with the I2C vhost-user device implementation in
+the <a href="https://github.com/rust-vmm/vhost-device">vhost-device</a> workspace. But
+there is still a lot to do, specially testing the same vhost-user backend
+executables with multiple hypervisors, which makes this a truly hypervisor
+agnostic solution. As said earlier, there is work going on currently in that
+area. Moreover, this workspace will receive more device specific crates in
+future.</p></div>
+</div>
+</div>
+</div>
+<div id="footnotes"><hr></div>
+<div id="footer">
+<div id="footer-text">
+Last updated
+ 2022-01-05 16:22:33 IST
+</div>
+</div>
+</body>
+</html>

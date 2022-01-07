@@ -3,7 +3,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="generator" content="AsciiDoc 9.0.0rc1">
-<title>Rust based vhost-user I2C backend</title>
+<title>Rust based hypervisor-agnostic vhost-user I2C backend</title>
 <style type="text/css">
 /* Shared CSS for AsciiDoc xhtml11 and html5 backends */
 
@@ -732,74 +732,70 @@ asciidoc.install();
 </head>
 <body class="article" style="max-width:60em">
 <div id="header">
-<h1>Rust based vhost-user I2C backend</h1>
+<h1>Rust based hypervisor-agnostic vhost-user I2C backend</h1>
 </div>
 <div id="content">
 <div id="preamble">
 <div class="sectionbody">
 <div class="paragraph"><p>There is a growing trend towards virtualization in areas other than the
-traditional server environment. The server environment is uniform in nature, but
-as we move towards a richer ecosystem in automotive, medical, general mobile,
-and the IoT spaces, more device abstractions, and way richer organizations are
-needed. Linaro&#8217;s <a href="https://www.linaro.org/projects/#automotive_STR">Project
-Stratos</a> is working towards developing hypervisor agnostic abstract devices
-leveraging virtio and extending hypervisor interfaces and standards to allow all
-architectures.</p></div>
+traditional server environment.  The server environment is uniform in nature,
+but as we move towards a richer ecosystem in automotive, medical, general
+mobile, and the IoT spaces, more device abstractions, and way richer
+organizations are needed.</p></div>
 <div class="paragraph"><p>The Virtual Input/Output device (Virtio) standard provides an open interface for
 guest <a href="https://en.wikipedia.org/wiki/Virtual_machine">virtual machines</a> (VMs)
 to access simplified "virtual" devices, such as network adapters and block
-devices, in a paravirtualized environment. Virtio provides a straightforward,
+devices, in a paravirtualized environment.  Virtio provides a straightforward,
 efficient, standard, and extensible mechanism for virtual devices, rather than a
 per-environment or per-OS mechanism.</p></div>
 <div class="paragraph"><p>Virtio adopts a frontend-backend architecture that enables a simple but flexible
-framework. The backend (BE) virtio driver, implemented by the hypervisor running
-on the host, exposes the virtio device to the guest OS through a standard
-transport method, like
+framework.  The backend (BE) virtio driver, implemented by the hypervisor
+running on the host, exposes the virtio device to the guest OS through a
+standard transport method, like
 <a href="https://en.wikipedia.org/wiki/Peripheral_Component_Interconnect">PCI</a> or
-<a href="https://en.wikipedia.org/wiki/Memory-mapped_I/O">MMIO</a>. This virtio device,
+<a href="https://en.wikipedia.org/wiki/Memory-mapped_I/O">MMIO</a>.  This virtio device,
 by design, looks like a physical device to the guest OS, which implements a
 frontend (FE) virtio driver compatible with the virtio device exposed by the
-hypervisor. The virtio device and driver communicate based on a set of
+hypervisor.  The virtio device and driver communicate based on a set of
 predefined protocols as defined by the
 <a href="https://github.com/oasis-tcs/virtio-spec">virtio specification</a>, which is
-maintained by <a href="https://www.oasis-open.org/org/">OASIS</a>. The FE driver may
+maintained by <a href="https://www.oasis-open.org/org/">OASIS</a>.  The FE driver may
 implement zero or more Virtual queues (virtqueues), as defined by the virtio
-specification. The virtqueues are the mechanism of bulk data transport between
-FE (guest) and BE (host) drivers. These are normally implemented as standard
-ring buffers in the guest physical memory space. The BE drivers parse the
+specification.  The virtqueues are the mechanism of bulk data transport between
+FE (guest) and BE (host) drivers.  These are normally implemented as standard
+ring buffers in the guest physical memory space.  The BE drivers parse the
 virtqueues to obtain the request descriptors, process them and queue the
-response descriptors back to the virtqueue.</p></div>
-<div class="paragraph"><p>The FE virtio driver, at the guest, and the virtio specification are normally
-independent of where the virtqueue processing happens at the host, in-kernel or
-userspace. The virtio vhost protocol allows the virtio virtqueue processing at
-the host to be offloaded to another element, a user process or a kernel module.
-The vhost protocol, when implemented in userspace is called as "vhost-user".
-Since Linaro&#8217;s Project Stratos is targeting hypervisor agnostic BE solutions,
-engineers at Linaro decided to work over the existing vhost-user protocol. This
-article focuses on the Rust based vhost-user implementation for the
-<a href="https://en.wikipedia.org/wiki/I%C2%B2C">I2C</a> (or Inter-Integrated Circuit)
-devices.</p></div>
+response descriptors back to the virtqueue.  The BE drivers are responsible for
+carrying out transactions with the HW, directly (on a Type 1 bare-metal
+hypervisor) or indirectly (on a Type 2 hypervisor via Linux user-space for
+example), just like any non-virtualized driver would.</p></div>
+<div class="paragraph"><p>The FE virtio drivers and the virtio specification itself are not concerned with
+where virtqueue processing happens on the host.  As such descriptors can be
+processed in user-space or kernel-space.  Virtqueue processing can be offloaded
+to other entities such as a user daemon or kernel module by following the vhost
+protocol, which is referred to as "vhost-user" when implemented in user-space.
+The remainder of this article presents the implementation of a
+hypervisor-agnostic vhost-user I2C daemon recently introduced to the rust-vmm
+project.</p></div>
 </div>
 </div>
 <div class="sect1">
 <h2 id="_virtio_i2c_specification">Virtio I2C Specification</h2>
 <div class="sectionbody">
-<div class="paragraph"><p>The Virtio
+<div class="paragraph"><p>The Virtio I2C
 <a href="https://github.com/oasis-tcs/virtio-spec/blob/master/virtio-i2c.tex">specification</a>
-for I2C and the Linux
+and a Linux
 <a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/i2c/busses/i2c-virtio.c">i2c-virtio</a>
-driver are upstreamed by Jie Deng (Intel), who tested his work with the
-<a href="https://projectacrn.org">ACRN</a> hypervisor designed for IoT development. Both
-specification and driver received updates later on by Viresh Kumar (Linaro), to
-improve buffer management and allow zero-length transactions. Lets briefly go
-through the virtio I2C specification.</p></div>
+driver have recently been upstreamed by Jie Deng (Intel).  Both specification
+and driver have received further improvement from the author to enhance buffer
+management and support zero-length transactions.</p></div>
 <div class="paragraph"><p><span class="monospaced">virtio-i2c</span> is a virtual I2C adapter device, which provides a way to flexibly
-organize and use the host I2C controlled devices from the guest. All
+organize and use the host I2C controlled devices from the guest.  All
 communication between the FE and BE drivers happens over the <span class="monospaced">requestq</span>
-virtqueue. The I2C requests always originate at the guest FE driver, where the
+virtqueue.  The I2C requests always originate at the guest FE driver, where the
 FE driver puts one or more I2C requests, represented by the <span class="monospaced">struct
-virtio_i2c_req</span>, on the <span class="monospaced">requestq</span> virtqueue. The I2C requests may or may not be
-be interdependent. If multiple requests are received together, then the host BE
+virtio_i2c_req</span>, on the <span class="monospaced">requestq</span> virtqueue.  The I2C requests may or may not
+be interdependent.  If multiple requests are received together, then the host BE
 driver must process the requests in the order they are received on the
 virtqueue.</p></div>
 <div class="listingblock">
@@ -811,7 +807,7 @@ virtqueue.</p></div>
 };</pre>
 </div></div>
 <div class="paragraph"><p>Each I2C virtio request consists of an <span class="monospaced">out_hdr</span>, followed by an optional data
-buffer of some length, followed by an <span class="monospaced">in_hdr</span>. The buffer is not sent for the
+buffer of some length, followed by an <span class="monospaced">in_hdr</span>.  The buffer is not sent for the
 zero-length requests, like for the SMBus <span class="monospaced">QUICK</span> command where no data is
 required to be sent or received.</p></div>
 <div class="listingblock">
@@ -823,20 +819,20 @@ required to be sent or received.</p></div>
 };</pre>
 </div></div>
 <div class="paragraph"><p>The <span class="monospaced">out_hdr</span> is represented by the <span class="monospaced">struct virtio_i2c_out_hdr</span> and is always
-set by the FE driver. The <span class="monospaced">addr</span> field of the header is set with the address of
-the I2C controlled device. Both 7-bit and 10-bit address modes are supported by
+set by the FE driver.  The <span class="monospaced">addr</span> field of the header is set with the address of
+the I2C controlled device.  Both 7-bit and 10-bit address modes are supported by
 the specification, though only 7-bit mode is supported by the current
-implementation of the Linux FE driver. The <span class="monospaced">flags</span> field is used to show
+implementation of the Linux FE driver.  The <span class="monospaced">flags</span> field is used to show
 dependency between multiple requests, by setting <span class="monospaced">VIRTIO_I2C_FLAGS_FAIL_NEXT</span>
 (0b01), or to mark a request <span class="monospaced">READ</span> or <span class="monospaced">WRITE</span>, by setting
 <span class="monospaced">VIRTIO_I2C_FLAGS_M_RD</span> (0b10) for <span class="monospaced">READ</span> operation.</p></div>
-<div class="paragraph"><p>As described earlier, <span class="monospaced">buf</span> is optional. The virtio specification for I2C
-defines a feature for zero-length transfers, <span class="monospaced">VIRTIO_I2C_F_ZERO_LENGTH_REQUEST</span>
-(0b01). It is mandatory for both FE and BE drivers to implement this feature,
-which allows zero-length transfers (like SMBus <span class="monospaced">QUICK</span> command) to take place.</p></div>
+<div class="paragraph"><p>As described earlier, <span class="monospaced">buf</span> is optional.  The virtio I2C specification defines a
+feature for zero-length transfers, <span class="monospaced">VIRTIO_I2C_F_ZERO_LENGTH_REQUEST</span> (0b01).
+It is mandatory for both FE and BE drivers to implement this feature, which
+allows zero-length transfers (like SMBus <span class="monospaced">QUICK</span> command) to take place.</p></div>
 <div class="paragraph"><p>For <span class="monospaced">WRITE</span> transactions, the buffer is set by the FE driver and read by the BE
-driver. For <span class="monospaced">READ</span> transactions, it is set by the BE driver and read by the FE
-driver after the response is received. The amount of the data to transfer is
+driver.  For <span class="monospaced">READ</span> transactions, it is set by the BE driver and read by the FE
+driver after the response is received.  The amount of the data to transfer is
 inferred by the size of the buffer descriptor.</p></div>
 <div class="listingblock">
 <div class="content monospaced">
@@ -855,65 +851,65 @@ of more details.</p></div>
 <div class="sect1">
 <h2 id="_rust_based_i2c_backend">Rust based I2C backend</h2>
 <div class="sectionbody">
-<div class="paragraph"><p>Rust is the next big thing disrupting the Linux world. Most of us are already
+<div class="paragraph"><p>Rust is the next big thing disrupting the Linux world.  Most of us are already
 aware of the <a href="https://github.com/Rust-for-Linux">Rust for Linux</a> project
-slowly making its way into the Linux kernel. Rust is a multi-paradigm,
-general-purpose programming language designed for performance and safety. It
+slowly making its way into the Linux kernel.  Rust is a multi-paradigm,
+general-purpose programming language designed for performance and safety.  It
 brings a lot of benefits to the table, especially
 <a href="https://en.wikipedia.org/wiki/Memory_safety">memory-safety</a> and safe
 <a href="https://en.wikipedia.org/wiki/Concurrency_(computer_science)">concurrency</a>.</p></div>
 <div class="paragraph"><p>The <a href="https://github.com/rust-vmm">rust-vmm</a> project, an open-source
 initiative, was started back in late 2018, with the aim to share virtualization
-packages. The rust-vmm project lets one build custom
+packages.  The rust-vmm project lets one build custom
 <a href="https://en.wikipedia.org/wiki/Hypervisor">Virtual Machine Monitors (VMMs)
-and hypervisors</a>. This empowers other projects to quickly develop virtualization
-solutions, by reusing the components provided by rust-vmm, and better focus on
-key differentiators of their products. The rust-vmm project is organized as a
-shared ownership project, that so far includes contributions from Alibaba, AWS,
-Cloud Base, Google, Intel, Linaro, Red Hat and other individual contributors.
-The components provided by rust-vmm are already used by several projects, like
-Amazon&#8217;s <a href="https://github.com/firecracker-microvm/firecracker">Firecracker</a>
-and Intel&#8217;s <a href="https://github.com/cloud-hypervisor/cloud-hypervisor">Cloud
-Hypervisor</a>. The rust-vmm project currently hosts ~30 repositories (or Rust
-crates, equivalent of a C library), where each crate plays a specialized role in
-the development of a fully functioning VMM.</p></div>
+and hypervisors</a>.  This empowers other projects to quickly develop
+virtualization solutions, by reusing the components provided by rust-vmm, and
+better focus on key differentiators of their products.  The rust-vmm project is
+organized as a shared ownership project, that so far includes contributions from
+Alibaba, AWS, Cloud Base, Google, Intel, Linaro, Red Hat and other individual
+contributors.  The components provided by rust-vmm are already used by several
+projects, like Amazon&#8217;s
+<a href="https://github.com/firecracker-microvm/firecracker">Firecracker</a> and
+<a href="https://github.com/cloud-hypervisor/cloud-hypervisor">Cloud Hypervisor</a>
+started by Intel.  The rust-vmm project currently hosts ~30 repositories (or
+Rust crates, equivalent of a C library), where each crate plays a specialized
+role in the development of a fully functioning VMM.</p></div>
 <div class="paragraph"><p>One such component provided by the rust-vmm project is the
 <a href="https://crates.io/crates/vhost-user-backend">vhost-user-backend</a> crate,
 which has recently made its way to <a href="https://crates.io/">crates.io</a>, the Rust
-community’s crate registry. The vhost-user-backend crate provides a framework to
-implement the vhost-user backend services. It provides necessary public APIs to
-support vhost-user backends, like a daemon control object (<span class="monospaced">VhostUserDaemon</span>) to
-start and stop the service daemon, a vhost-user backend trait
+community’s crate registry.  The vhost-user-backend crate provides a framework
+to implement the vhost-user backend services.  It provides necessary public APIs
+to support vhost-user backends, like a daemon control object (<span class="monospaced">VhostUserDaemon</span>)
+to start and stop the service daemon, a vhost-user backend trait
 (<span class="monospaced">VhostUserBackendMut</span>) to handle vhost-user control messages and virtio
-messages, and a vring access trait (<span class="monospaced">VringT</span>) to access virtio queues. A Rust
+messages, and a vring access trait (<span class="monospaced">VringT</span>) to access virtio queues.  A Rust
 trait tells the Rust compiler about functionality a particular type has and can
 share with other types.</p></div>
-<div class="paragraph"><p>A separate Rust workspace,
-<a href="https://github.com/rust-vmm/vhost-device">vhost-device</a>, is recently created
-in the rust-vmm project, to host per-device vhost-user backend crates. The only
-crate merged there as for now is the I2C device crate, while there are others
-getting developed and reviewed as we speak, like GPIO, RNG, VSOCK, SCSI, and
-<a href="https://en.wikipedia.org/wiki/Replay_Protected_Memory_Block">RPMB</a>.</p></div>
-<div class="paragraph"><p>The I2C vhost-device binary-crate (generates an executable upon build),
-developed by Viresh Kumar (Linaro), supports sharing host I2C busses (Adaptors)
-and client devices with multiple guest VMs at the same time with a single
-instance of the backend daemon. Once the vhost-device crate is compiled with
-<span class="monospaced">cargo build --release</span> command, it generates the
-<span class="monospaced">target/release/vhost-device-i2c</span> executable. The <span class="monospaced">vhost-device-i2c</span> daemon
-communicates with guest VMs over Unix domain sockets, a unique socket for each
-VM.</p></div>
+<div class="paragraph"><p>The <a href="https://github.com/rust-vmm/vhost-device">vhost-device</a> workspace was
+recently created in the rust-vmm project to host per-device vhost-user backend
+crates.  As of this writing, it contains the I2C device crate but others such as
+GPIO, RNG, VSOCK SCSI and
+<a href="https://en.wikipedia.org/wiki/Replay_Protected_Memory_Block">RPMB</a> are
+currently being developed and reviewed."</p></div>
+<div class="paragraph"><p>The I2C vhost-device binary-crate (binary-crate generates an executable upon
+build), supports sharing host I2C busses (Adaptors) and client devices with
+multiple guest VMs at the same time with a single instance of the backend
+daemon.  Once the vhost-device crate is compiled with <span class="monospaced">cargo build --release</span>
+command, it generates the <span class="monospaced">target/release/vhost-device-i2c</span> executable.  The
+<span class="monospaced">vhost-device-i2c</span> daemon communicates with guest VMs over Unix domain sockets,
+a unique socket for each VM.</p></div>
 <div class="paragraph"><p>The daemon accepts these arguments:</p></div>
 <div class="ulist"><ul>
 <li>
 <p>
--s, --socket-path: Path of the vhost-user Unix domain sockets. This is
+-s, --socket-path: Path of the vhost-user Unix domain sockets.  This is
   suffixed with 0,1,2..socket_count-1 by the daemon to obtain actual socket
   paths.
 </p>
 </li>
 <li>
 <p>
--c, --socket-count: Number of sockets (guests) to connect to. This parameter
+-c, --socket-count: Number of sockets (guests) to connect to.  This parameter
   is optional and defaults to 1.
 </p>
 </li>
@@ -932,38 +928,38 @@ VM.</p></div>
 <div class="paragraph"><p>This will start the I2C backend daemon, which will create 6 Unix domain sockets
 (<span class="monospaced">~/i2c.sock0</span>, .. <span class="monospaced">~/i2c.sock5</span>), in order to communicate with 6 guest VMs,
 where communication with each VM happens in parallel with the help of a separate
-native OS thread. Each thread, once created by the daemon, will wait for a VM to
-start communicating over the thread&#8217;s designated socket. Once a VM is found for
-the thread, the thread registers a <span class="monospaced">vhost-user-backend</span> instance and starts
-processing the requests on the <span class="monospaced">requestq</span> virtqueue. At a later point of time,
+native OS thread.  Each thread, once created by the daemon, will wait for a VM
+to start communicating over the thread&#8217;s designated socket.  Once a VM is found
+for the thread, the thread registers a <span class="monospaced">vhost-user-backend</span> instance and starts
+processing the requests on the <span class="monospaced">requestq</span> virtqueue.  At a later point of time,
 once the VM shuts down, the respective thread starts waiting for a new VM to
-communicate on the same socket path. In the above example, the daemon is also
+communicate on the same socket path.  In the above example, the daemon is also
 passed a list of host I2C busses and client devices, which are shared among the
-VMs. This is how sharing is defined in the daemon&#8217;s implementation for now,
-though it can be modified later on, if required, to allow specific devices
-to be accessed only by a particular VM. In the above example, the devices
-provided by the host to the daemon are: devices with address 32 and 41 attached
-to I2C bus 6, and 37 and 6 attached to I2C bus 9. The daemon extensively
-validates the device-list at initialization to avoid any failures later,
-especially for duplicate entries.</p></div>
+VMs.  This is how sharing is defined in the daemon&#8217;s implementation for now,
+though it can be modified later on, if required, to allow specific devices to be
+accessed only by a particular VM.  In the above example, the devices provided by
+the host to the daemon are: devices with address 32 and 41 attached to I2C bus
+6, and 37 and 6 attached to I2C bus 9.  The daemon extensively validates the
+device-list at initialization to avoid any failures later, especially for
+duplicate entries.</p></div>
 <div class="paragraph"><p>The <span class="monospaced">vhost-user-i2c</span> daemon supports both I2C and SMBus protocols, only basic
-SMBus commands up to word-transfer though. The backend provides the <span class="monospaced">pub trait
+SMBus commands up to word-transfer though.  The backend provides the <span class="monospaced">pub trait
 I2cDevice</span>, a public Rust trait, which can be implemented for different host
-environments to provide access to the underlying I2C busses and devices. This is
-currently implemented only for the Linux userspace, where the I2C busses and
-devices are accessed via the <span class="monospaced">/dev/i2c-X</span> device files. For the above example,
-the backend daemon will look for <span class="monospaced">/dev/i2c-6</span> and <span class="monospaced">/dev/i2c-9</span> device files. The
-users may need to load the standard <span class="monospaced">i2c-dev</span> kernel module on the host machine,
-if not loaded already, for these device files to be available under <span class="monospaced">/dev/</span>. For
-a different host environment, like with a bare-metal type 1 hypervisor, we need
-to add another implementation of the trait depending on how the I2C busses and
-devices are accessed.</p></div>
-<div class="paragraph"><p>The <span class="monospaced">vhost-user-i2c</span> backend is truly a hypervisor agnostic solution that works
-with any hypervisor which understands the vhost-user protocol. It has been
-extensively tested with QEMU for example, with Linux userspace environment. Work
-is in progress to make Xen hypervisor vhost-user protocol compatible. Once that
-is done, we will be able to use the same <span class="monospaced">vhost-user-i2c</span> executable with both
-QEMU and Xen, for example, under the same host environment.</p></div>
+environments to provide access to the underlying I2C busses and devices.  This
+is currently implemented only for the Linux user-space, where the I2C busses and
+devices are accessed via the <span class="monospaced">/dev/i2c-X</span> device files.  For the above example,
+the backend daemon will look for <span class="monospaced">/dev/i2c-6</span> and <span class="monospaced">/dev/i2c-9</span> device files.
+The users may need to load the standard <span class="monospaced">i2c-dev</span> kernel module on the host
+machine, if not loaded already, for these device files to be available under
+<span class="monospaced">/dev/</span>.  For a different host environment, like with a bare-metal type 1
+hypervisor, we need to add another implementation of the trait depending on how
+the I2C busses and devices are accessed.</p></div>
+<div class="paragraph"><p>The <span class="monospaced">vhost-user-i2c</span> backend is truly a hypervisor-agnostic solution that works
+with any hypervisor which understands the vhost-user protocol.  It has been
+extensively tested with QEMU for example, with Linux user-space environment.
+Work is in progress to make Xen hypervisor vhost-user protocol compatible.  Once
+that is done, we will be able to use the same <span class="monospaced">vhost-user-i2c</span> executable with
+both QEMU and Xen, for example, under the same host environment.</p></div>
 <div class="paragraph"><p>Support for i2c-virtio is already merged in QEMU source, boilerplate stuff to
 create the i2c-virtio device in the guest kernel, and the i2c-virtio device can
 be created in the guest kernel by adding following command line arguments to
@@ -973,12 +969,10 @@ your QEMU command:</p></div>
 <pre>-chardev socket,path=~/i2c.sock0,id=vi2c -device vhost-user-i2c-device,chardev=vi2c,id=i2c</pre>
 </div></div>
 <div class="paragraph"><p>We have come a long way forward with the I2C vhost-user device implementation in
-the <a href="https://github.com/rust-vmm/vhost-device">vhost-device</a> workspace. But
-there is still a lot to do, specially testing the same vhost-user backend
-executables with multiple hypervisors, which makes this a truly hypervisor
-agnostic solution. As said earlier, there is work going on currently in that
-area. Moreover, this workspace will receive more device specific crates in
-future.</p></div>
+the <a href="https://github.com/rust-vmm/vhost-device">vhost-device</a> workspace.
+There is still a lot to do though, especially testing the same vhost-user
+backend executables with multiple hypervisors and adding support for more device
+crates.</p></div>
 </div>
 </div>
 </div>
@@ -986,7 +980,7 @@ future.</p></div>
 <div id="footer">
 <div id="footer-text">
 Last updated
- 2022-01-05 16:22:33 IST
+ 2022-01-07 12:52:35 IST
 </div>
 </div>
 </body>

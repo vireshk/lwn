@@ -4,15 +4,19 @@ Rust based hypervisor-agnostic vhost-user I2C backend
 There is a growing trend towards virtualization in areas other than the
 traditional server environment.  The server environment is uniform in nature,
 but as we move towards a richer ecosystem in automotive, medical, general
-mobile, and the IoT spaces, more device abstractions, and way richer
-organizations are needed.
+mobile, and the IoT spaces, richer device abstractions are needed.  Linaro's
+link:https://www.linaro.org/projects/#automotive_STR[Project Stratos] is working
+towards developing hypervisor-agnostic abstract devices, leveraging virtio and
+extending hypervisor interfaces and standards to allow all architectures.
 
 The Virtual Input/Output device (Virtio) standard provides an open interface for
-guest link:https://en.wikipedia.org/wiki/Virtual_machine[virtual machines] (VMs)
-to access simplified "virtual" devices, such as network adapters and block
-devices, in a paravirtualized environment.  Virtio provides a straightforward,
-efficient, standard, and extensible mechanism for virtual devices, rather than a
-per-environment or per-OS mechanism.
+guest link:https://en.wikipedia.org/wiki/Virtual_machine[virtual machines]
+(VMs). The standard provides for common devices, such as network and block
+storage, which have been designed for efficient performance in a paravirtualized
+environment.  This is achieved by minimizing the number of potentially expensive
+context switches involved in any given device transaction.  The open standard
+provides an extensible interface that can be implemented in a wide range of
+environments regardless of the OS choice.
 
 Virtio adopts a frontend-backend architecture that enables a simple but flexible
 framework.  The backend (BE) virtio driver, implemented by the hypervisor
@@ -32,9 +36,8 @@ FE (guest) and BE (host) drivers.  These are normally implemented as standard
 ring buffers in the guest physical memory space.  The BE drivers parse the
 virtqueues to obtain the request descriptors, process them and queue the
 response descriptors back to the virtqueue.  The BE drivers are responsible for
-carrying out transactions with the HW, directly (on a Type 1 bare-metal
-hypervisor) or indirectly (on a Type 2 hypervisor via Linux user-space for
-example), just like any non-virtualized driver would.
+making sure the data from the transaction is processed; either by forwarding to
+real HW or some sort of device emulation.
 
 The FE virtio drivers and the virtio specification itself are not concerned with
 where virtqueue processing happens on the host.  As such descriptors can be
@@ -51,10 +54,10 @@ Virtio I2C Specification
 The Virtio I2C
 link:https://github.com/oasis-tcs/virtio-spec/blob/master/virtio-i2c.tex[specification]
 and a Linux
-link:https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/i2c/busses/i2c-virtio.c[i2c-virtio]
-driver have recently been upstreamed by Jie Deng (Intel).  Both specification
-and driver have received further improvement from the author to enhance buffer
-management and support zero-length transactions.
+link:https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/drivers/i2c/busses/i2c-virtio.c?id=3cfc88380413d20f777dc6648a38f683962e52bf[i2c-virtio]
+driver have recently been upstreamed by Jie Deng.  Both specification and driver
+have received further improvement from the author to enhance buffer management
+and support zero-length transactions.
 
 `virtio-i2c` is a virtual I2C adapter device, which provides a way to flexibly
 organize and use the host I2C controlled devices from the guest.  All
@@ -116,20 +119,19 @@ The `in_hdr` is represented by the `struct virtio_i2c_in_hdr` and is used by the
 host BE driver to notify the guest with the status of the transfer with
 `VIRTIO_I2C_MSG_OK` (0) or `VIRTIO_I2C_MSG_ERR` (1).
 
-Please refer the Virtio I2C
-link:https://github.com/oasis-tcs/virtio-spec/blob/master/virtio-i2c.tex[specification]
-of more details.
+Please refer the Virtio I2C specification of more details.
 
 Rust based I2C backend
 ----------------------
 
-Rust is the next big thing disrupting the Linux world.  Most of us are already
-aware of the link:https://github.com/Rust-for-Linux[Rust for Linux] project
-slowly making its way into the Linux kernel.  Rust is a multi-paradigm,
-general-purpose programming language designed for performance and safety.  It
-brings a lot of benefits to the table, especially
+Rust is attracting a lot of interest in the Linux world due to its strong
+emphasis on performance and safety.  Rust is a multi-paradigm, general-purpose
+programming language designed for performance and safety.  It brings a lot of
+benefits to the table, especially
 link:https://en.wikipedia.org/wiki/Memory_safety[memory-safety] and safe
 link:https://en.wikipedia.org/wiki/Concurrency_(computer_science)[concurrency].
+The link:https://github.com/Rust-for-Linux[Rust for Linux] project is looking to
+bring those safety benefits to a subset of the kernels code.
 
 The link:https://github.com/rust-vmm[rust-vmm] project, an open-source
 initiative, was started back in late 2018, with the aim to share virtualization
@@ -227,9 +229,12 @@ the I2C busses and devices are accessed.
 The `vhost-user-i2c` backend is truly a hypervisor-agnostic solution that works
 with any hypervisor which understands the vhost-user protocol.  It has been
 extensively tested with QEMU for example, with Linux user-space environment.
-Work is in progress to make Xen hypervisor vhost-user protocol compatible.  Once
-that is done, we will be able to use the same `vhost-user-i2c` executable with
-both QEMU and Xen, for example, under the same host environment.
+There has already been a proof of concept
+link:https://connect.linaro.org/resources/lvc21/lvc21-314/[implementation] of
+servicing a virtio-block device from a Xen guest. Work is in progress to make
+the Xen hypervisor vhost-user protocol compatible.  Once that is achieved, we
+will be able to use the same `vhost-user-i2c` executable with both QEMU and Xen,
+for example, under the same host environment.
 
 Support for i2c-virtio is already merged in QEMU source, boilerplate stuff to
 create the i2c-virtio device in the guest kernel, and the i2c-virtio device can
@@ -241,7 +246,8 @@ your QEMU command:
 ----
 
 We have come a long way forward with the I2C vhost-user device implementation in
-the link:https://github.com/rust-vmm/vhost-device[vhost-device] workspace.
-There is still a lot to do though, especially testing the same vhost-user
-backend executables with multiple hypervisors and adding support for more device
-crates.
+the vhost-device workspace.  There is still a lot to do though, especially
+testing the same vhost-user backend executables with different type of
+hypervisors and adding support for more device crates.  Folks interested in
+collaborating with the ongoing work can visit
+link:https://linaro.atlassian.net/wiki/spaces/STR/overview[here].

@@ -9,11 +9,12 @@ block. What changes is the transport: those operations become structured
 
 Virtio Over Messages, also called virtio-msg, currently lives in
 [Linaro's fork](https://github.com/Linaro/virtio-msg-spec/tree/virtio-msg) of
-the Virtio specification. Bill Mills posted an earlier revision to
-`virtio-comment@lists.linux.dev` in January 2026.
+the Virtio specification. Bertrand Marquis (ARM)
+[posted](https://lore.kernel.org/all/cover.1781514628.git.bertrand.marquis@arm.com/)
+the latest revision to `virtio-comment@lists.linux.dev` in June 2026.
 
 The work sits under Linaro's **HVAC** (Heterogeneous VirtIO for Automotive
-Computing) umbrella, with contributors from Linaro, Arm, AMD, ST, Google, and
+Computing) umbrella, with contributors from Linaro, ARM, AMD, ST, Google, and
 others. The goal is not to replace virtio-pci or virtio-mmio where those work
 well, but to give Virtio a transport that fits software-only peers,
 heterogeneous SoCs, secure partitions, and multi-system links where
@@ -33,7 +34,7 @@ link is not naturally a guest PCI function or MMIO device. Examples include:
 - A **co-processor** (MCU, DSP, firmware) on an AMP SoC, reached via shared
   memory and doorbells.
 - **Two machines** on PCIe, each with its own OS.
-- **Normal and secure worlds** using an IPC ABI such as Arm FF-A.
+- **Normal and secure worlds** using an IPC ABI such as ARM FF-A.
 - **Host-to-guest, or guest-to-guest** paths where a hypervisor exposes messages
   rather than emulated virtio-mmio.
 - **Userspace backends** in the same OS as the driver, with nothing to trap on.
@@ -223,7 +224,7 @@ separate; the spec lists these as informative examples:
 
 | Binding | Role |
 |---------|------|
-| **Virtio message bus over FF-A** | Normal↔secure, host↔guest, guest↔guest; [Arm FF-A bus document](https://documentation-service.arm.com/static/68f647791134f773ab3f0a7c). |
+| **Virtio message bus over FF-A** | Normal↔secure, host↔guest, guest↔guest; [ARM FF-A bus document](https://documentation-service.arm.com/static/68f647791134f773ab3f0a7c). |
 | **PCI for AMP** | Heterogeneous SoCs or multi-host PCIe; [hvac-demo](https://github.com/wmamills/hvac-demo) proof of concept. |
 | **Xen grants and events** | Under discussion (queue address spaces). |
 
@@ -258,7 +259,7 @@ delivery, and address meaning -- to the binding that actually knows the link.
 
 Collaborative development on virtio-msg is being done within the Virtualization
 Working Group of the [Core Collective](https://corecollective.dev/), which is an
-open collaborative forum for the Arm ecosystem. Current discussions at the
+open collaborative forum for the ARM ecosystem. Current discussions at the
 Working group can be seen
 [here](https://groups.google.com/a/corecollective.dev/g/virtualization).
 
@@ -272,8 +273,8 @@ join.
 | Item | Link |
 |------|------|
 | Virtio spec source (`transport-msg.tex`) | [Linaro/virtio-msg-spec](https://github.com/Linaro/virtio-msg-spec/tree/virtio-msg) — `virtio-msg` branch |
-| Earlier virtio-comment cover (Jan 2026) | [lore.kernel.org — Bill Mills](https://lore.kernel.org/all/20260126163230.1122685-1-bill.mills@linaro.org/) |
-| Arm FF-A virtio-msg bus (informative) | [Arm documentation](https://documentation-service.arm.com/static/68f647791134f773ab3f0a7c) |
+| virtio-comment cover letter (June 2026) | [Specification](https://lore.kernel.org/all/cover.1781514628.git.bertrand.marquis@arm.com/) |
+| ARM FF-A virtio-msg bus (informative) | [ARM documentation](https://documentation-service.arm.com/static/68f647791134f773ab3f0a7c) |
 | HVAC overview | [Linaro Confluence](https://linaro.atlassian.net/wiki/spaces/HVAC/overview) |
 | Demos (informative) | [hvac-demo](https://github.com/wmamills/hvac-demo) |
 | Linux | [Kernel](https://git.kernel.org/pub/scm/linux/kernel/git/vireshk/linux.git) — `virtio-msg` branch |
